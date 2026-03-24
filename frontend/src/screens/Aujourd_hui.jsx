@@ -151,6 +151,8 @@ export default function Aujourd_hui() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncStatus, setSyncStatus] = useState(null)
 
   const charger = async () => {
     setLoading(true)
@@ -168,6 +170,28 @@ export default function Aujourd_hui() {
       setError('Erreur de connexion au serveur')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncStatus(null)
+
+    try {
+      const res = await api.post('/system/manual-sync', {}, { timeout: 60000 })
+      const inserted = res.data?.pronostics_inserted ?? 0
+      setSyncStatus({
+        type: 'success',
+        message: `Synchronisation terminée · ${inserted} pronostic${inserted > 1 ? 's' : ''} mis à jour`,
+      })
+      await charger()
+    } catch (e) {
+      setSyncStatus({
+        type: 'error',
+        message: 'Synchronisation impossible pour le moment',
+      })
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -212,6 +236,22 @@ export default function Aujourd_hui() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
+            onClick={handleSync}
+            disabled={syncing}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '9999px',
+              border: '1px solid #333333',
+              backgroundColor: syncing ? '#1A1A1A' : '#242424',
+              color: syncing ? '#666666' : '#A0A0A0',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: syncing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {syncing ? 'Sync...' : 'Synchroniser'}
+          </button>
+          <button
             onClick={charger}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
           >
@@ -225,6 +265,25 @@ export default function Aujourd_hui() {
           </div>
         </div>
       </div>
+
+      {syncStatus && (
+        <Card
+          style={{
+            marginBottom: '16px',
+            padding: '12px 14px',
+            backgroundColor: syncStatus.type === 'success' ? '#14261B' : '#2A1616',
+            borderColor: syncStatus.type === 'success' ? '#1F5A35' : '#6B1F1F',
+          }}
+        >
+          <p style={{
+            fontSize: '12px',
+            color: syncStatus.type === 'success' ? '#7DD3A6' : '#FCA5A5',
+            lineHeight: '1.4',
+          }}>
+            {syncStatus.message}
+          </p>
+        </Card>
+      )}
 
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
