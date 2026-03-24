@@ -10,6 +10,8 @@ export default function Parametres({ onLogout }) {
   const [profile, setProfile] = useState(null)
   const [systemStatus, setSystemStatus] = useState(null)
   const [modelHealth, setModelHealth] = useState(null)
+  const [isSyncingLeagues, setIsSyncingLeagues] = useState(false)
+  const [leagueSyncFeedback, setLeagueSyncFeedback] = useState('')
   const [isBackfilling, setIsBackfilling] = useState(false)
   const [backfillFeedback, setBackfillFeedback] = useState('')
   const [isRetraining, setIsRetraining] = useState(false)
@@ -46,6 +48,36 @@ export default function Parametres({ onLogout }) {
   useEffect(() => {
     chargerDonnees()
   }, [])
+
+  const lancerSyncLigues = async () => {
+    setIsSyncingLeagues(true)
+    setLeagueSyncFeedback('')
+
+    try {
+      const response = await api.post(
+        '/system/manual-league-sync',
+        {},
+        { timeout: 120000 }
+      )
+
+      const sync = response.data?.sync_ligues || {}
+      const nouvelles = response.data?.nouvelles_ligues ?? '—'
+
+      setLeagueSyncFeedback(
+        `Catalogue synchronisé: ${sync.total_footystats ?? '—'} ligues FootyStats, ${sync.total_actives_db ?? '—'} actives, ${nouvelles} nouvelles collectées.`
+      )
+      await chargerDonnees()
+    } catch (e) {
+      const message =
+        e?.error?.message ||
+        e?.detail ||
+        e?.message ||
+        "Impossible de synchroniser les ligues disponibles."
+      setLeagueSyncFeedback(message)
+    } finally {
+      setIsSyncingLeagues(false)
+    }
+  }
 
   const lancerBackfill = async () => {
     setIsBackfilling(true)
@@ -138,7 +170,7 @@ export default function Parametres({ onLogout }) {
           badge: systemStatus?.system_mode === 'active' ? 'success' : 'muted'
         },
         { label: 'API', value: systemStatus?.api_status || '—' },
-        { label: 'Catalogue ligues', value: systemStatus ? 'Synchronisé via FootyStats' : '—' },
+        { label: 'Catalogue ligues', value: systemStatus ? `${systemStatus.ligues_actives ?? '—'} actives / ${systemStatus.total_ligues ?? '—'} total` : '—' },
         { label: 'Matchs à venir', value: systemStatus?.matchs_a_venir ?? '—' },
       ]
     },
@@ -335,6 +367,67 @@ export default function Parametres({ onLogout }) {
           </div>
         )}
       </Card>
+
+      {profile?.is_admin && (
+        <Card style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Sliders size={16} color="#666666" />
+            <span style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
+              Catalogue ligues
+            </span>
+          </div>
+
+          {[
+            { label: 'Ligues actives', value: systemStatus?.ligues_actives ?? '—' },
+            { label: 'Ligues totales en base', value: systemStatus?.total_ligues ?? '—' },
+            { label: 'Ordre recommandé', value: '1. Ligues  2. Backfill  3. Entraînement' },
+          ].map((item, i, arr) => (
+            <div
+              key={item.label}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                paddingBottom: i < arr.length - 1 ? '12px' : 0,
+                marginBottom: i < arr.length - 1 ? '12px' : 0,
+                borderBottom: i < arr.length - 1 ? '1px solid #2E2E2E' : 'none',
+              }}
+            >
+              <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
+              <span style={{ fontSize: '13px', fontWeight: '500', color: '#F5F5F5', textAlign: 'right' }}>
+                {item.value}
+              </span>
+            </div>
+          ))}
+
+          <button
+            onClick={lancerSyncLigues}
+            disabled={isSyncingLeagues || isBackfilling || isRetraining}
+            style={{
+              width: '100%',
+              marginTop: '16px',
+              padding: '12px',
+              borderRadius: '10px',
+              border: '1px solid #EAB30833',
+              backgroundColor: isSyncingLeagues ? '#A1620722' : '#EAB30822',
+              color: '#FACC15',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: isSyncingLeagues ? 'wait' : 'pointer',
+              opacity: isSyncingLeagues ? 0.7 : 1,
+            }}
+          >
+            {isSyncingLeagues ? 'Synchronisation des ligues...' : 'Prendre les ligues disponibles'}
+          </button>
+
+          {leagueSyncFeedback && (
+            <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
+              {leagueSyncFeedback}
+            </div>
+          )}
+        </Card>
+      )}
 
       {profile?.is_admin && (
         <Card style={{ marginBottom: '16px' }}>

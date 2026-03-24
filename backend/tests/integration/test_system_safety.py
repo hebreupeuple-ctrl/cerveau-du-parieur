@@ -103,6 +103,41 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 403)
 
+    def test_manual_league_sync_returns_catalog_summary(self):
+        with TestClient(app) as client:
+            self._register(client, "admin@example.com", "Password123!")
+            token = self._login(client, "admin@example.com", "Password123!")
+            headers = {"Authorization": f"Bearer {token}"}
+
+            with patch(
+                "backend.scheduler.tasks.automation.synchroniser_catalogue",
+                return_value={
+                    "sync_ligues": {
+                        "total_footystats": 12,
+                        "ajoutees": 2,
+                        "mises_a_jour": 5,
+                        "desactivees": 1,
+                        "total_actives_db": 9,
+                    },
+                    "nouvelles_ligues": 2,
+                },
+            ):
+                response = client.post(
+                    "/api/v1/system/manual-league-sync",
+                    headers=headers,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["success"])
+            self.assertEqual(
+                response.json()["data"]["sync_ligues"]["total_footystats"],
+                12,
+            )
+            self.assertEqual(
+                response.json()["data"]["nouvelles_ligues"],
+                2,
+            )
+
     def test_place_bet_rejects_stake_above_bankroll(self):
         with TestClient(app) as client:
             self._register(client, "admin@example.com", "Password123!")

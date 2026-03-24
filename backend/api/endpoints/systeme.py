@@ -34,6 +34,12 @@ async def status():
     cursor = conn.execute("SELECT COUNT(*) FROM matches")
     total_matchs = cursor.fetchone()[0]
 
+    cursor = conn.execute("SELECT COUNT(*) FROM leagues")
+    total_ligues = cursor.fetchone()[0]
+
+    cursor = conn.execute("SELECT COUNT(*) FROM leagues WHERE is_active = 1")
+    ligues_actives = cursor.fetchone()[0]
+
     cursor = conn.execute(
         "SELECT COUNT(*) FROM matches WHERE status = 'upcoming'"
     )
@@ -49,12 +55,80 @@ async def status():
             "data": {
                 "system_mode": "active",
                 "api_status": "operational",
+                "total_ligues": total_ligues,
+                "ligues_actives": ligues_actives,
                 "total_matchs": total_matchs,
                 "matchs_a_venir": matchs_a_venir,
                 "total_features": total_features,
                 **historical_features,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+        }
+    )
+
+
+@router.post("/manual-league-sync")
+async def manual_league_sync(
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """
+    Synchronise uniquement le catalogue des ligues et les nouvelles ligues.
+    """
+    from backend.scheduler.tasks.automation import synchroniser_catalogue
+
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
+    logger.info_ctx(
+        "Synchronisation catalogue ligues demandee",
+        context={"user_id": current_user["id"]},
+    )
+
+    async with manual_system_lock:
+        try:
+            resultat = await synchroniser_catalogue()
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
+
+    logger.info_ctx(
+        "Synchronisation catalogue ligues terminee",
+        context={
+            "user_id": current_user["id"],
+            "total_footystats": resultat.get("sync_ligues", {}).get(
+                "total_footystats"
+            ),
+            "nouvelles_ligues": resultat.get("nouvelles_ligues"),
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": resultat,
+            "meta": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
         }
     )
 
