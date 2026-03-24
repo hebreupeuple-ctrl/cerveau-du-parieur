@@ -282,8 +282,10 @@ def obtenir_resume_features_historiques(
         matches_complete = conn.execute(
             """
             SELECT COUNT(*)
-            FROM matches
-            WHERE status = 'complete'
+            FROM matches m
+            JOIN leagues l ON l.id = m.league_id
+            WHERE m.status = 'complete'
+            AND l.is_active = 1
             """
         ).fetchone()[0]
 
@@ -292,7 +294,9 @@ def obtenir_resume_features_historiques(
             SELECT COUNT(*)
             FROM match_features mf
             JOIN matches m ON m.id = mf.match_id
+            JOIN leagues l ON l.id = m.league_id
             WHERE m.status = 'complete'
+            AND l.is_active = 1
             """
         ).fetchone()[0]
 
@@ -301,7 +305,9 @@ def obtenir_resume_features_historiques(
             SELECT COUNT(*)
             FROM matches m
             LEFT JOIN match_features mf ON mf.match_id = m.id
+            JOIN leagues l ON l.id = m.league_id
             WHERE m.status = 'complete'
+            AND l.is_active = 1
             AND mf.match_id IS NULL
             """
         ).fetchone()[0]
@@ -359,7 +365,9 @@ def _backfill_features_historiques_sync(
                    m.away_team_id, m.league_id, m.game_week
             FROM matches m
             LEFT JOIN match_features mf ON mf.match_id = m.id
+            JOIN leagues l ON l.id = m.league_id
             WHERE m.status = 'complete'
+            AND l.is_active = 1
             AND mf.match_id IS NULL
             ORDER BY m.match_timestamp ASC
             LIMIT ?

@@ -12,6 +12,10 @@ from backend.core.config import settings
 from backend.database.connection import fermer_connexion, obtenir_connexion
 from backend.database.migrations import appliquer_migrations
 from backend.scheduler.locks import DistributedJobLockService
+from backend.scheduler.tasks.automation import (
+    _backfill_features_historiques_sync,
+    obtenir_resume_features_historiques,
+)
 
 
 class SystemSafetyIntegrationTests(unittest.TestCase):
@@ -367,6 +371,188 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
         generateur = GenerateurPronostics(conn)
         leagues = generateur._obtenir_leagues_autorisees(1)
         self.assertEqual(leagues, {1, 2})
+
+    @patch("backend.scheduler.tasks.automation.FeaturePipeline")
+    def test_backfill_only_processes_active_leagues(self, pipeline_cls):
+        conn = obtenir_connexion()
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (1, 101, 'Active League', 'Test', 1, 'test', 1, 1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (2, 102, 'Inactive League', 'Test', 1, 'test', 1, 0)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO teams (id, footystats_id, name, country)
+            VALUES
+                (1, 301, 'Home 1', 'Test'),
+                (2, 302, 'Away 1', 'Test'),
+                (3, 303, 'Home 2', 'Test'),
+                (4, 304, 'Away 2', 'Test')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO seasons (
+                id, footystats_id, league_id, name, year,
+                start_date, end_date, status
+            ) VALUES
+                (1, 201, 1, '2026 Active', 2026, '2026-01-01', '2026-12-31', 'active'),
+                (2, 202, 2, '2026 Inactive', 2026, '2026-01-01', '2026-12-31', 'active')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO matches (
+                id, footystats_id, season_id, league_id,
+                home_team_id, away_team_id,
+                match_date, match_timestamp, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                401,
+                1,
+                1,
+                1,
+                2,
+                "2026-03-20",
+                now - 7200,
+                "complete",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO matches (
+                id, footystats_id, season_id, league_id,
+                home_team_id, away_team_id,
+                match_date, match_timestamp, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                2,
+                402,
+                2,
+                2,
+                3,
+                4,
+                "2026-03-21",
+                now - 3600,
+                "complete",
+            ),
+        )
+        conn.commit()
+
+        match_ids = []
+        pipeline = pipeline_cls.return_value
+
+        def fake_calculer_et_sauvegarder(**kwargs):
+            match_ids.append(kwargs["match_id"])
+            return True
+
+        pipeline.calculer_et_sauvegarder.side_effect = fake_calculer_et_sauvegarder
+
+        resultat = _backfill_features_historiques_sync(batch_size=10)
+
+        self.assertEqual(resultat["processed"], 1)
+        self.assertEqual(resultat["ok"], 1)
+        self.assertEqual(match_ids, [1])
+
+    def test_historical_feature_summary_only_counts_active_leagues(self):
+        conn = obtenir_connexion()
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (1, 101, 'Active League', 'Test', 1, 'test', 1, 1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (2, 102, 'Inactive League', 'Test', 1, 'test', 1, 0)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO teams (id, footystats_id, name, country)
+            VALUES
+                (1, 301, 'Home 1', 'Test'),
+                (2, 302, 'Away 1', 'Test'),
+                (3, 303, 'Home 2', 'Test'),
+                (4, 304, 'Away 2', 'Test')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO seasons (
+                id, footystats_id, league_id, name, year,
+                start_date, end_date, status
+            ) VALUES
+                (1, 201, 1, '2026 Active', 2026, '2026-01-01', '2026-12-31', 'active'),
+                (2, 202, 2, '2026 Inactive', 2026, '2026-01-01', '2026-12-31', 'active')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO matches (
+                id, footystats_id, season_id, league_id,
+                home_team_id, away_team_id,
+                match_date, match_timestamp, status
+            ) VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?),
+                (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                401,
+                1,
+                1,
+                1,
+                2,
+                "2026-03-20",
+                now - 7200,
+                "complete",
+                2,
+                402,
+                2,
+                2,
+                3,
+                4,
+                "2026-03-21",
+                now - 3600,
+                "complete",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO match_features (match_id)
+            VALUES (?), (?)
+            """,
+            (
+                1,
+                2,
+            ),
+        )
+        conn.commit()
+
+        resultat = obtenir_resume_features_historiques(conn)
+
+        self.assertEqual(resultat["matches_complete"], 1)
+        self.assertEqual(resultat["features_historiques_calculees"], 1)
+        self.assertEqual(resultat["features_historiques_manquantes"], 0)
+        self.assertEqual(resultat["historical_backfill_coverage_pct"], 100.0)
 
 
 if __name__ == "__main__":
