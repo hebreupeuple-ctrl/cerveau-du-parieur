@@ -133,6 +133,8 @@ class ModelTrainer:
             "X": X_array,
             "labels": {k: np.array(v) for k, v in labels.items()},
             "n_matchs": len(X),
+            "training_data_start": self._timestamp_vers_iso(rows[0]["match_timestamp"]),
+            "training_data_end": self._timestamp_vers_iso(rows[-1]["match_timestamp"]),
         }
 
     def entrainer_marche(
@@ -212,7 +214,14 @@ class ModelTrainer:
             metriques = self.entrainer_marche(marche, X, y)
             resultats[marche] = metriques
 
-        self._sauvegarder_modeles()
+        chemin = self._sauvegarder_modeles()
+        self._enregistrer_version_modele(
+            n_matchs=donnees["n_matchs"],
+            resultats=resultats,
+            training_data_start=donnees["training_data_start"],
+            training_data_end=donnees["training_data_end"],
+            artifact_path=chemin,
+        )
         return resultats
 
     def predire(
@@ -288,7 +297,7 @@ class ModelTrainer:
             )
             return {}
 
-    def _sauvegarder_modeles(self) -> None:
+    def _sauvegarder_modeles(self) -> str:
         os.makedirs(settings.MODELS_DIR, exist_ok=True)
         chemin = os.path.join(
             settings.MODELS_DIR, "ensemble_actuel.pkl"
@@ -299,6 +308,7 @@ class ModelTrainer:
             "Modeles sauvegardés",
             context={"chemin": chemin},
         )
+        return chemin
 
     def _charger_modeles(self) -> None:
         chemin = os.path.join(
@@ -310,3 +320,60 @@ class ModelTrainer:
             logger.info("Modeles chargés depuis le disque")
         else:
             logger.warning("Aucun modele sauvegardé trouvé")
+
+    def _enregistrer_version_modele(
+        self,
+        n_matchs: int,
+        resultats: dict,
+        training_data_start: str,
+        training_data_end: str,
+        artifact_path: str,
+    ) -> None:
+        version = datetime.now(timezone.utc).strftime("%Y.%m.%d.%H%M%S")
+        over25 = resultats.get("over25", {})
+        btts = resultats.get("btts", {})
+
+        self.conn.execute(
+            "UPDATE model_versions SET is_active = 0 WHERE is_active = 1"
+        )
+
+        self.conn.execute(
+            """
+            INSERT INTO model_versions (
+                version, trained_at,
+                training_data_start, training_data_end,
+                total_matches_trained,
+                brier_score_over25, brier_score_btts,
+                log_loss_over25, log_loss_btts,
+                auc_roc_over25, auc_roc_btts,
+                selected_features_json, artifact_path, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                version,
+                datetime.now(timezone.utc).isoformat(),
+                training_data_start,
+                training_data_end,
+                n_matchs,
+                over25.get("brier_score"),
+                btts.get("brier_score"),
+                over25.get("log_loss"),
+                btts.get("log_loss"),
+                over25.get("auc_roc"),
+                btts.get("auc_roc"),
+                json.dumps(FEATURES_COLONNES, ensure_ascii=False),
+                artifact_path,
+            ),
+        )
+        self.conn.commit()
+
+        logger.info_ctx(
+            "Version modele enregistree",
+            context={"version": version},
+        )
+
+    def _timestamp_vers_iso(self, timestamp: int) -> str:
+        return datetime.fromtimestamp(
+            timestamp,
+            tz=timezone.utc,
+        ).isoformat()

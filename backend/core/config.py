@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     MODELS_DIR: str = "./data/models"
     MAX_MODEL_VERSIONS: int = 3
 
+    # Automatisation
+    SCHEDULER_ENABLED: bool = True
+    AUTO_SYNC_ON_STARTUP: bool = True
+    LEAGUE_SYNC_INTERVAL_HOURS: int = 24
+    MARKET_REFRESH_INTERVAL_MINUTES: int = 60
+    MODEL_RETRAIN_INTERVAL_HOURS: int = 24
+    MODEL_RETRAIN_INITIAL_DELAY_MINUTES: int = 10
+
     @field_validator("ENVIRONMENT")
     @classmethod
     def validate_environment(cls, v: str) -> str:

@@ -20,6 +20,7 @@ class FeaturePipeline:
 
     def __init__(self, conn: sqlite3.Connection = None):
         self.conn = conn or obtenir_connexion()
+        self._colonnes_match_features = None
 
     def calculer_features_match(
         self,
@@ -119,7 +120,15 @@ class FeaturePipeline:
         Sauvegarde les features calculées dans la base.
         """
         try:
-            colonnes = [k for k in features.keys()]
+            colonnes_valides = self._obtenir_colonnes_match_features()
+            colonnes = [
+                k for k in features.keys()
+                if k in colonnes_valides
+            ]
+
+            if not colonnes:
+                return False
+
             valeurs = [features[k] for k in colonnes]
             placeholders = ", ".join(["?" for _ in colonnes])
             cols_str = ", ".join(colonnes)
@@ -144,6 +153,16 @@ class FeaturePipeline:
                 },
             )
             return False
+
+    def _obtenir_colonnes_match_features(self) -> set[str]:
+        if self._colonnes_match_features is None:
+            cursor = self.conn.execute(
+                "PRAGMA table_info(match_features)"
+            )
+            self._colonnes_match_features = {
+                row["name"] for row in cursor.fetchall()
+            }
+        return self._colonnes_match_features
 
     def calculer_et_sauvegarder(
         self,

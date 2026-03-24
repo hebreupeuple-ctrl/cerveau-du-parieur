@@ -19,12 +19,19 @@ async def lifespan(app: FastAPI):
 
     from backend.database.connection import obtenir_connexion
     from backend.database.migrations import appliquer_migrations
+    from backend.scheduler.runtime import AutomationScheduler
 
     conn = obtenir_connexion()
     appliquer_migrations(conn)
     logger.info("Base de donnees initialisee")
 
+    scheduler = AutomationScheduler()
+    app.state.scheduler = scheduler
+    await scheduler.start()
+
     yield
+
+    await scheduler.stop()
 
     from backend.database.connection import fermer_connexion
     fermer_connexion()
