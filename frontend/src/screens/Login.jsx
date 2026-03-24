@@ -19,6 +19,15 @@ export default function Login({ onLogin }) {
     setError(null)
   }
 
+  const extraireMessageErreur = (e, fallback) => {
+    return (
+      e?.detail?.message ||
+      e?.error?.message ||
+      e?.message ||
+      fallback
+    )
+  }
+
   const basculerMode = (nextMode) => {
     setMode(nextMode)
     setPassword('')
@@ -49,10 +58,15 @@ export default function Login({ onLogin }) {
 
     try {
       if (mode === 'register') {
-        await api.post('/auth/register', {
-          email: email.trim(),
-          password,
-        })
+        try {
+          await api.post('/auth/register', {
+            email: email.trim(),
+            password,
+          })
+        } catch (e) {
+          setError(extraireMessageErreur(e, 'Impossible de créer le compte'))
+          return
+        }
       }
 
       const res = await api.post('/auth/login', {
@@ -64,12 +78,15 @@ export default function Login({ onLogin }) {
       localStorage.setItem('token', token)
       onLogin(token)
     } catch (e) {
-      const message = e?.detail?.message || e?.error?.message
-
       if (mode === 'register') {
-        setError(message || 'Impossible de créer le compte')
+        setError(
+          extraireMessageErreur(
+            e,
+            'Compte créé, mais connexion automatique impossible. Connecte-toi maintenant.',
+          ),
+        )
       } else {
-        setError(message || 'Email ou mot de passe incorrect')
+        setError(extraireMessageErreur(e, 'Email ou mot de passe incorrect'))
       }
     } finally {
       setLoading(false)
