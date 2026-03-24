@@ -98,7 +98,14 @@ async def register(req: RegisterRequest, conn: sqlite3.Connection = Depends(get_
             (user_id, market),
         )
 
-    ligues = conn.execute("SELECT id FROM leagues WHERE is_active = 1").fetchall()
+    ligues = conn.execute(
+        "SELECT id FROM leagues WHERE is_active = 1"
+    ).fetchall()
+    if not ligues:
+        ligues = conn.execute(
+            "SELECT id FROM leagues"
+        ).fetchall()
+
     for ligue in ligues:
         conn.execute(
             "INSERT OR IGNORE INTO user_leagues (user_id, league_id) VALUES (?, ?)",

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from backend.analysis.accumulateur import GenerateurPronostics
 from backend.api.router import app
 from backend.core.config import settings
 from backend.database.connection import fermer_connexion, obtenir_connexion
@@ -312,6 +313,60 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(mocked_generation.call_count, 1)
+
+    def test_register_assigns_existing_leagues_when_none_active(self):
+        conn = obtenir_connexion()
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (1, 101, 'Inactive League', 'Test', 1, 'test', 1, 0)
+            """
+        )
+        conn.commit()
+
+        with TestClient(app) as client:
+            self._register(client, "inactive@example.com", "Password123!")
+
+        conn = obtenir_connexion()
+        user_leagues = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM user_leagues
+            WHERE user_id = 1
+            """
+        ).fetchone()[0]
+        self.assertEqual(user_leagues, 1)
+
+    def test_league_fallback_uses_all_leagues_when_user_and_active_sets_are_empty(self):
+        conn = obtenir_connexion()
+        conn.execute(
+            """
+            INSERT INTO users (
+                id, email, password_hash,
+                initial_bankroll, current_bankroll, kelly_fraction
+            ) VALUES (1, 'fallback@example.com', 'hash', 150, 150, 0.125)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (1, 101, 'League A', 'Test', 1, 'test', 1, 0)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO leagues (
+                id, footystats_id, name, country, tier, group_type, priority, is_active
+            ) VALUES (2, 102, 'League B', 'Test', 1, 'test', 1, 0)
+            """
+        )
+        conn.commit()
+
+        generateur = GenerateurPronostics(conn)
+        leagues = generateur._obtenir_leagues_autorisees(1)
+        self.assertEqual(leagues, {1, 2})
 
 
 if __name__ == "__main__":

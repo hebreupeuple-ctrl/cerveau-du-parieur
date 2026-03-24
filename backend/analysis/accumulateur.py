@@ -352,6 +352,12 @@ class GenerateurPronostics:
         rows = self.conn.execute(
             "SELECT id FROM leagues WHERE is_active = 1"
         ).fetchall()
+        if rows:
+            return {row["id"] for row in rows}
+
+        rows = self.conn.execute(
+            "SELECT id FROM leagues"
+        ).fetchall()
         return {row["id"] for row in rows}
 
     def _obtenir_marches_autorises(self, user_id: int) -> set[str]:
