@@ -16,7 +16,7 @@ from backend.scheduler.tasks.automation import (
     backfill_features_historiques,
     entrainer_modele,
     rafraichir_matchs_cotes_et_pronostics,
-    synchroniser_catalogue,
+    synchroniser_catalogue_et_automatiser_si_necessaire,
 )
 
 logger = get_logger(__name__)
@@ -44,14 +44,14 @@ class AutomationScheduler:
             )
 
         self._tasks.extend([
-            asyncio.create_task(
-                self._boucle_job(
-                    "sync_leagues",
-                    synchroniser_catalogue,
-                    settings.LEAGUE_SYNC_INTERVAL_HOURS * 3600,
-                    resource_name=SYSTEM_PIPELINE_RESOURCE,
-                )
-            ),
+                asyncio.create_task(
+                    self._boucle_job(
+                        "sync_leagues",
+                        synchroniser_catalogue_et_automatiser_si_necessaire,
+                        settings.LEAGUE_SYNC_INTERVAL_HOURS * 3600,
+                        resource_name=SYSTEM_PIPELINE_RESOURCE,
+                    )
+                ),
                 asyncio.create_task(
                     self._boucle_job(
                         "market_refresh",
@@ -100,17 +100,21 @@ class AutomationScheduler:
         logger.info("Arret du scheduler applicatif")
 
     async def _bootstrap(self) -> None:
-        await self._executer_job(
+        sync_result = await self._executer_job(
             "sync_leagues",
-            synchroniser_catalogue,
+            synchroniser_catalogue_et_automatiser_si_necessaire,
             resource_name=SYSTEM_PIPELINE_RESOURCE,
         )
-        await self._executer_job(
-            "market_refresh",
-            rafraichir_matchs_cotes_et_pronostics,
-            resource_name=SYSTEM_PIPELINE_RESOURCE,
-        )
-        if settings.HISTORICAL_FEATURE_BACKFILL_ENABLED:
+        if not (sync_result or {}).get("pipeline_triggered"):
+            await self._executer_job(
+                "market_refresh",
+                rafraichir_matchs_cotes_et_pronostics,
+                resource_name=SYSTEM_PIPELINE_RESOURCE,
+            )
+        if (
+            settings.HISTORICAL_FEATURE_BACKFILL_ENABLED
+            and not (sync_result or {}).get("pipeline_triggered")
+        ):
             await self._executer_job(
                 "historical_feature_backfill",
                 backfill_features_historiques,
@@ -146,7 +150,7 @@ class AutomationScheduler:
         job_name: str,
         job_fn: Callable[[], Awaitable[dict]],
         resource_name: str = None,
-    ) -> None:
+    ) -> dict | None:
         resource_name = resource_name or job_name
         lock = self._locks.setdefault(resource_name, asyncio.Lock())
         if lock.locked():
@@ -157,7 +161,7 @@ class AutomationScheduler:
                     "resource_name": resource_name,
                 },
             )
-            return
+            return None
 
         async with lock:
             lock_token = await asyncio.to_thread(
@@ -172,7 +176,7 @@ class AutomationScheduler:
                         "resource_name": resource_name,
                     },
                 )
-                return
+                return None
 
             job_id = self._creer_job_log(job_name)
             debut = time.time()
@@ -193,6 +197,7 @@ class AutomationScheduler:
                     "Job automatise termine",
                     context={"job_name": job_name},
                 )
+                return resultat
             except Exception as exc:
                 self._terminer_job_log(
                     job_id=job_id,
@@ -207,6 +212,7 @@ class AutomationScheduler:
                         "erreur": str(exc),
                     },
                 )
+                return None
             finally:
                 await asyncio.to_thread(
                     self._distributed_locks.release,

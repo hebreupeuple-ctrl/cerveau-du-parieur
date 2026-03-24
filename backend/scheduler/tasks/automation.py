@@ -24,13 +24,88 @@ async def synchroniser_catalogue() -> dict:
     conn = creer_connexion()
     try:
         sync_ligues = await synchroniser_ligues(conn)
-        nouvelles_ligues = await collecter_nouvelles_ligues(conn)
+        saisons_collectees = await collecter_nouvelles_ligues(conn)
         return {
             "sync_ligues": sync_ligues,
-            "nouvelles_ligues": len(nouvelles_ligues),
+            "catalogue_changed": bool(
+                sync_ligues.get("catalogue_changed")
+            ),
+            "saisons_collectees": len(saisons_collectees),
+            "nouvelles_ligues": len(saisons_collectees),
         }
     finally:
         conn.close()
+
+
+async def synchroniser_catalogue_et_automatiser_si_necessaire(
+    heures: int = 48,
+    user_ids: Optional[Sequence[int]] = None,
+    max_pronostics: int = 10,
+    max_backfill_batches: Optional[int] = None,
+) -> dict:
+    """
+    Synchronise le catalogue puis déclenche automatiquement
+    backfill, réentraînement et rafraîchissement des pronostics
+    si le catalogue a réellement changé.
+    """
+    sync = await synchroniser_catalogue()
+    if not sync.get("catalogue_changed"):
+        return {
+            "sync": sync,
+            "pipeline_triggered": False,
+            "reason": "catalogue_unchanged",
+        }
+
+    batches_limit = (
+        max_backfill_batches
+        or settings.CATALOG_CHANGE_BACKFILL_MAX_BATCHES
+    )
+    backfill_batches = 0
+    backfill_processed = 0
+    backfill_ok = 0
+    backfill_fail = 0
+    remaining_backfill = None
+
+    for _ in range(batches_limit):
+        resultat_backfill = await backfill_features_historiques()
+        backfill_batches += 1
+        backfill_processed += resultat_backfill.get("processed", 0)
+        backfill_ok += resultat_backfill.get("ok", 0)
+        backfill_fail += resultat_backfill.get("fail", 0)
+        remaining_backfill = resultat_backfill.get("after", {}).get(
+            "features_historiques_manquantes"
+        )
+
+        if (
+            resultat_backfill.get("processed", 0) == 0
+            or remaining_backfill == 0
+        ):
+            break
+
+    retrain = await entrainer_modele()
+    refresh = await rafraichir_matchs_cotes_et_pronostics(
+        heures=heures,
+        user_ids=user_ids,
+        max_pronostics=max_pronostics,
+    )
+
+    return {
+        "sync": sync,
+        "pipeline_triggered": True,
+        "backfill": {
+            "batches": backfill_batches,
+            "processed": backfill_processed,
+            "ok": backfill_ok,
+            "fail": backfill_fail,
+            "remaining": remaining_backfill,
+            "complete": remaining_backfill == 0,
+        },
+        "retrain": {
+            "trained": bool(retrain.get("markets")),
+            **retrain,
+        },
+        "refresh": refresh,
+    }
 
 
 async def rafraichir_matchs_cotes_et_pronostics(

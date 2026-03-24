@@ -1,8 +1,9 @@
+import asyncio
 import os
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -110,16 +111,25 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
             headers = {"Authorization": f"Bearer {token}"}
 
             with patch(
-                "backend.scheduler.tasks.automation.synchroniser_catalogue",
+                "backend.scheduler.tasks.automation.synchroniser_catalogue_et_automatiser_si_necessaire",
                 return_value={
-                    "sync_ligues": {
-                        "total_footystats": 12,
-                        "ajoutees": 2,
-                        "mises_a_jour": 5,
-                        "desactivees": 1,
-                        "total_actives_db": 9,
+                    "sync": {
+                        "catalogue_changed": True,
+                        "saisons_collectees": 2,
+                        "sync_ligues": {
+                            "total_footystats": 12,
+                            "ajoutees": 2,
+                            "mises_a_jour": 0,
+                            "desactivees": 1,
+                            "saisons_modifiees": 1,
+                            "total_actives_db": 9,
+                            "catalogue_changed": True,
+                        },
                     },
-                    "nouvelles_ligues": 2,
+                    "pipeline_triggered": True,
+                    "backfill": {"batches": 2, "processed": 1000},
+                    "retrain": {"trained": True, "markets": ["over25"]},
+                    "refresh": {"pronostics": {"inserted": 3}},
                 },
             ):
                 response = client.post(
@@ -130,13 +140,108 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json()["success"])
             self.assertEqual(
-                response.json()["data"]["sync_ligues"]["total_footystats"],
+                response.json()["data"]["sync"]["sync_ligues"]["total_footystats"],
                 12,
             )
+            self.assertTrue(response.json()["data"]["pipeline_triggered"])
             self.assertEqual(
-                response.json()["data"]["nouvelles_ligues"],
+                response.json()["data"]["sync"]["saisons_collectees"],
                 2,
             )
+
+    def test_catalog_change_pipeline_runs_follow_up_jobs(self):
+        with patch(
+            "backend.scheduler.tasks.automation.synchroniser_catalogue",
+            new=AsyncMock(
+                return_value={
+                    "sync_ligues": {
+                        "catalogue_changed": True,
+                        "total_actives_db": 9,
+                    },
+                    "catalogue_changed": True,
+                    "saisons_collectees": 3,
+                    "nouvelles_ligues": 3,
+                }
+            ),
+        ), patch(
+            "backend.scheduler.tasks.automation.backfill_features_historiques",
+            new=AsyncMock(
+                side_effect=[
+                    {
+                        "processed": 4,
+                        "ok": 4,
+                        "fail": 0,
+                        "after": {"features_historiques_manquantes": 2},
+                    },
+                    {
+                        "processed": 2,
+                        "ok": 2,
+                        "fail": 0,
+                        "after": {"features_historiques_manquantes": 0},
+                    },
+                ]
+            ),
+        ) as mocked_backfill, patch(
+            "backend.scheduler.tasks.automation.entrainer_modele",
+            new=AsyncMock(return_value={"markets": ["over25"]}),
+        ) as mocked_retrain, patch(
+            "backend.scheduler.tasks.automation.rafraichir_matchs_cotes_et_pronostics",
+            new=AsyncMock(return_value={"pronostics": {"inserted": 2}}),
+        ) as mocked_refresh:
+            from backend.scheduler.tasks.automation import (
+                synchroniser_catalogue_et_automatiser_si_necessaire,
+            )
+
+            resultat = asyncio.run(
+                synchroniser_catalogue_et_automatiser_si_necessaire(
+                    user_ids=[1],
+                    max_pronostics=10,
+                )
+            )
+
+        self.assertTrue(resultat["pipeline_triggered"])
+        self.assertEqual(resultat["backfill"]["batches"], 2)
+        self.assertEqual(resultat["backfill"]["processed"], 6)
+        self.assertEqual(resultat["refresh"]["pronostics"]["inserted"], 2)
+        self.assertEqual(mocked_backfill.await_count, 2)
+        mocked_retrain.assert_awaited_once()
+        mocked_refresh.assert_awaited_once()
+
+    def test_catalog_unchanged_skips_follow_up_jobs(self):
+        with patch(
+            "backend.scheduler.tasks.automation.synchroniser_catalogue",
+            new=AsyncMock(
+                return_value={
+                    "sync_ligues": {
+                        "catalogue_changed": False,
+                    },
+                    "catalogue_changed": False,
+                    "saisons_collectees": 0,
+                    "nouvelles_ligues": 0,
+                }
+            ),
+        ), patch(
+            "backend.scheduler.tasks.automation.backfill_features_historiques",
+            new=AsyncMock(),
+        ) as mocked_backfill, patch(
+            "backend.scheduler.tasks.automation.entrainer_modele",
+            new=AsyncMock(),
+        ) as mocked_retrain, patch(
+            "backend.scheduler.tasks.automation.rafraichir_matchs_cotes_et_pronostics",
+            new=AsyncMock(),
+        ) as mocked_refresh:
+            from backend.scheduler.tasks.automation import (
+                synchroniser_catalogue_et_automatiser_si_necessaire,
+            )
+
+            resultat = asyncio.run(
+                synchroniser_catalogue_et_automatiser_si_necessaire()
+            )
+
+        self.assertFalse(resultat["pipeline_triggered"])
+        mocked_backfill.assert_not_awaited()
+        mocked_retrain.assert_not_awaited()
+        mocked_refresh.assert_not_awaited()
 
     def test_place_bet_rejects_stake_above_bankroll(self):
         with TestClient(app) as client:

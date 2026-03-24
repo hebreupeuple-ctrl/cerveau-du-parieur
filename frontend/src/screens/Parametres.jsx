@@ -57,15 +57,24 @@ export default function Parametres({ onLogout }) {
       const response = await api.post(
         '/system/manual-league-sync',
         {},
-        { timeout: 120000 }
+        { timeout: 300000 }
       )
 
-      const sync = response.data?.sync_ligues || {}
-      const nouvelles = response.data?.nouvelles_ligues ?? '—'
+      const sync = response.data?.sync?.sync_ligues || {}
+      const saisonsCollectees = response.data?.sync?.saisons_collectees ?? '—'
+      const pipelineTriggered = Boolean(response.data?.pipeline_triggered)
+      const backfill = response.data?.backfill || {}
+      const refresh = response.data?.refresh || {}
 
-      setLeagueSyncFeedback(
-        `Catalogue synchronisé: ${sync.total_footystats ?? '—'} ligues FootyStats, ${sync.total_actives_db ?? '—'} actives, ${nouvelles} nouvelles collectées.`
-      )
+      if (pipelineTriggered) {
+        setLeagueSyncFeedback(
+          `Catalogue synchronisé puis pipeline lancé automatiquement: ${sync.total_actives_db ?? '—'} ligues actives, ${saisonsCollectees} saisons collectées, ${backfill.batches ?? '—'} lot(s) de backfill, ${refresh.pronostics?.inserted ?? 0} pronostic(s) régénéré(s).`
+        )
+      } else {
+        setLeagueSyncFeedback(
+          `Catalogue synchronisé: aucun changement détecté, donc pas de backfill ni de réentraînement relancés.`
+        )
+      }
       await chargerDonnees()
     } catch (e) {
       const message =
@@ -380,7 +389,7 @@ export default function Parametres({ onLogout }) {
           {[
             { label: 'Ligues actives', value: systemStatus?.ligues_actives ?? '—' },
             { label: 'Ligues totales en base', value: systemStatus?.total_ligues ?? '—' },
-            { label: 'Ordre recommandé', value: '1. Ligues  2. Backfill  3. Entraînement' },
+            { label: 'Pipeline après changement', value: 'Automatique: backfill, entraînement, pronostics' },
           ].map((item, i, arr) => (
             <div
               key={item.label}

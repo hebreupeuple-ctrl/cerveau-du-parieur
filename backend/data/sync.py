@@ -109,6 +109,7 @@ async def synchroniser_ligues(
     ajoutees = 0
     mises_a_jour = 0
     desactivees = 0
+    saisons_modifiees = 0
 
     for nom, info in ligues_footystats.items():
         ligue_db = conn.execute(
@@ -140,6 +141,7 @@ async def synchroniser_ligues(
                 league_id=league_id,
                 info=info,
             )
+            saisons_modifiees += 1
 
             ajoutees += 1
             logger.info_ctx(
@@ -147,31 +149,44 @@ async def synchroniser_ligues(
                 context={"ligue": nom, "saison": info["nom_saison"]},
             )
         else:
-            conn.execute(
-                """
-                UPDATE leagues SET
-                    footystats_id = ?,
-                    country = ?,
-                    is_active = 1,
-                    priority = ?,
-                    updated_at = datetime('now')
-                WHERE name = ?
-                """,
-                (
-                    info["league_footystats_id"],
-                    info["country"],
-                    info["priorite"],
-                    nom,
-                ),
-            )
+            nouveau_groupe = _determiner_groupe(nom)
+            ligue_changee = any([
+                ligue_db["footystats_id"] != info["league_footystats_id"],
+                ligue_db["country"] != info["country"],
+                ligue_db["priority"] != info["priorite"],
+                ligue_db["group_type"] != nouveau_groupe,
+                ligue_db["is_active"] != 1,
+            ])
 
-            await _synchroniser_saison(
+            if ligue_changee:
+                conn.execute(
+                    """
+                    UPDATE leagues SET
+                        footystats_id = ?,
+                        country = ?,
+                        group_type = ?,
+                        is_active = 1,
+                        priority = ?,
+                        updated_at = datetime('now')
+                    WHERE name = ?
+                    """,
+                    (
+                        info["league_footystats_id"],
+                        info["country"],
+                        nouveau_groupe,
+                        info["priorite"],
+                        nom,
+                    ),
+                )
+                mises_a_jour += 1
+
+            saison_modifiee = await _synchroniser_saison(
                 conn=conn,
                 league_id=ligue_db["id"],
                 info=info,
             )
-
-            mises_a_jour += 1
+            if saison_modifiee:
+                saisons_modifiees += 1
 
     ligues_actives_db = conn.execute(
         "SELECT name FROM leagues WHERE is_active = 1"
@@ -203,7 +218,11 @@ async def synchroniser_ligues(
         "ajoutees": ajoutees,
         "mises_a_jour": mises_a_jour,
         "desactivees": desactivees,
+        "saisons_modifiees": saisons_modifiees,
         "total_actives_db": total_actives,
+        "catalogue_changed": bool(
+            ajoutees or mises_a_jour or desactivees or saisons_modifiees
+        ),
     }
 
     logger.info_ctx(
@@ -219,21 +238,30 @@ async def _synchroniser_saison(
     conn: sqlite3.Connection,
     league_id: int,
     info: dict,
-) -> None:
+) -> bool:
     """
     Synchronise la saison active d'une ligue.
     """
     saison_existante = conn.execute(
-        "SELECT id FROM seasons WHERE footystats_id = ?",
+        "SELECT id, status FROM seasons WHERE footystats_id = ?",
         (info["footystats_season_id"],),
     ).fetchone()
 
     if saison_existante:
-        conn.execute(
-            "UPDATE seasons SET status = 'active' WHERE id = ?",
-            (saison_existante["id"],),
-        )
-        return
+        if saison_existante["status"] != "active":
+            conn.execute(
+                """
+                UPDATE seasons SET status = 'complete'
+                WHERE league_id = ? AND status = 'active' AND id != ?
+                """,
+                (league_id, saison_existante["id"]),
+            )
+            conn.execute(
+                "UPDATE seasons SET status = 'active' WHERE id = ?",
+                (saison_existante["id"],),
+            )
+            return True
+        return False
 
     conn.execute(
         """
@@ -259,6 +287,7 @@ async def _synchroniser_saison(
             f"{info['annee'] + 1}-06-30",
             ),
         )
+    return True
 
 
 def _determiner_groupe(nom_ligue: str) -> str:

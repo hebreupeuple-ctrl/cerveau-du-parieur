@@ -72,9 +72,12 @@ async def manual_league_sync(
     current_user: dict = Depends(get_current_admin_user),
 ):
     """
-    Synchronise uniquement le catalogue des ligues et les nouvelles ligues.
+    Synchronise le catalogue des ligues puis déclenche
+    automatiquement le pipeline système si le catalogue change.
     """
-    from backend.scheduler.tasks.automation import synchroniser_catalogue
+    from backend.scheduler.tasks.automation import (
+        synchroniser_catalogue_et_automatiser_si_necessaire,
+    )
 
     lock_service = DistributedJobLockService()
     lock_token = await asyncio.to_thread(
@@ -103,7 +106,10 @@ async def manual_league_sync(
 
     async with manual_system_lock:
         try:
-            resultat = await synchroniser_catalogue()
+            resultat = await synchroniser_catalogue_et_automatiser_si_necessaire(
+                user_ids=[current_user["id"]],
+                max_pronostics=10,
+            )
         finally:
             await asyncio.to_thread(
                 lock_service.release,
@@ -115,10 +121,15 @@ async def manual_league_sync(
         "Synchronisation catalogue ligues terminee",
         context={
             "user_id": current_user["id"],
-            "total_footystats": resultat.get("sync_ligues", {}).get(
+            "catalogue_changed": resultat.get("sync", {}).get(
+                "catalogue_changed"
+            ),
+            "total_footystats": resultat.get("sync", {}).get("sync_ligues", {}).get(
                 "total_footystats"
             ),
-            "nouvelles_ligues": resultat.get("nouvelles_ligues"),
+            "saisons_collectees": resultat.get("sync", {}).get(
+                "saisons_collectees"
+            ),
         },
     )
 
