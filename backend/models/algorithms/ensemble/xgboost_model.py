@@ -23,12 +23,19 @@ class XGBoostPredictor:
     ) -> None:
         try:
             import xgboost as xgb
+
+            # Pondération des classes pour les labels déséquilibrés
+            n_neg = int((y == 0).sum())
+            n_pos = int((y == 1).sum())
+            scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
+
             self.modele = xgb.XGBClassifier(
                 n_estimators=200,
                 max_depth=5,
                 learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
+                scale_pos_weight=scale_pos_weight,
                 use_label_encoder=False,
                 eval_metric="logloss",
                 random_state=42,

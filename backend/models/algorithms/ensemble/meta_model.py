@@ -13,13 +13,61 @@ class MetaModel:
 
     def __init__(self, marche: str):
         self.marche = marche
+        # Poids fixes de repli si le stacking n'est pas entraîné
         self.poids = {
             "xgboost": 0.50,
             "random_forest": 0.30,
             "logistic_regression": 0.20,
         }
+        self._stacking_model = None  # méta-apprenants entraîné sur prédictions OOF
         self.est_calibre = False
         self._calibrateur = None
+
+    def entrainer_stacking(
+        self,
+        oof_xgb: np.ndarray,
+        oof_rf: np.ndarray,
+        oof_lr: np.ndarray,
+        y: np.ndarray,
+    ) -> None:
+        """
+        Entraîne le méta-apprenant de niveau 2 sur les prédictions OOF.
+        Les poids sont appris par régression logistique sans biais,
+        ce qui revient à apprendre les poids optimaux pour chaque modèle.
+        """
+        try:
+            from sklearn.linear_model import LogisticRegression
+
+            if len(np.unique(y)) < 2:
+                logger.warning_ctx(
+                    "Stacking ignoré : une seule classe dans y",
+                    context={"marche": self.marche},
+                )
+                return
+
+            X_meta = np.column_stack([oof_xgb, oof_rf, oof_lr])
+            # fit_intercept=False : force les poids à somme cohérente
+            meta = LogisticRegression(
+                C=1.0,
+                solver="lbfgs",
+                max_iter=500,
+                fit_intercept=True,
+                random_state=42,
+            )
+            meta.fit(X_meta, y)
+            self._stacking_model = meta
+            logger.info_ctx(
+                "Stacking niveau 2 entraîné",
+                context={
+                    "marche": self.marche,
+                    "coefs": [round(float(c), 4) for c in meta.coef_[0]],
+                },
+            )
+        except Exception as e:
+            logger.error_ctx(
+                "Erreur entraînement stacking",
+                context={"marche": self.marche, "erreur": str(e)},
+            )
 
     def predire(
         self,
@@ -27,29 +75,39 @@ class MetaModel:
         pred_rf: Optional[np.ndarray],
         pred_lr: Optional[np.ndarray],
     ) -> Optional[np.ndarray]:
+        actifs = [p for p in [pred_xgb, pred_rf, pred_lr] if p is not None]
+        if not actifs:
+            return None
+
+        # Stacking niveau 2 si disponible et toutes les prédictions présentes
+        if (
+            self._stacking_model is not None
+            and pred_xgb is not None
+            and pred_rf is not None
+            and pred_lr is not None
+        ):
+            try:
+                X_meta = np.column_stack([pred_xgb, pred_rf, pred_lr])
+                return self._stacking_model.predict_proba(X_meta)[:, 1]
+            except Exception:
+                pass  # Repli sur moyenne pondérée
+
+        # Repli : moyenne pondérée par les poids fixes
         predictions = []
         poids_actifs = []
-
-        if pred_xgb is not None:
-            predictions.append(pred_xgb)
-            poids_actifs.append(self.poids["xgboost"])
-        if pred_rf is not None:
-            predictions.append(pred_rf)
-            poids_actifs.append(self.poids["random_forest"])
-        if pred_lr is not None:
-            predictions.append(pred_lr)
-            poids_actifs.append(self.poids["logistic_regression"])
-
-        if not predictions:
-            return None
+        for pred, key in zip(
+            [pred_xgb, pred_rf, pred_lr],
+            ["xgboost", "random_forest", "logistic_regression"],
+        ):
+            if pred is not None:
+                predictions.append(pred)
+                poids_actifs.append(self.poids[key])
 
         poids_total = sum(poids_actifs)
         poids_normalises = [p / poids_total for p in poids_actifs]
-
         resultat = np.zeros_like(predictions[0])
         for pred, poids in zip(predictions, poids_normalises):
             resultat += pred * poids
-
         return resultat
 
     def calibrer(

@@ -21,6 +21,7 @@ from backend.models.algorithms.ensemble.meta_model import MetaModel
 logger = get_logger(__name__)
 
 FEATURES_COLONNES = [
+    # Forme récente (buts, taux, points)
     "home_goals_scored_3m", "home_goals_scored_5m",
     "home_goals_scored_10m", "home_goals_scored_20m",
     "home_goals_conceded_3m", "home_goals_conceded_5m",
@@ -43,22 +44,39 @@ FEATURES_COLONNES = [
     "away_xg_diff_5m", "away_ppm_5m", "away_ppm_10m",
     "away_win_streak", "away_momentum_score",
     "away_rest_days", "away_matches_last_14",
+    # H2H
     "h2h_home_wins_5", "h2h_draws_5", "h2h_away_wins_5",
     "h2h_goals_avg_5", "h2h_btts_rate_5",
     "h2h_over25_rate_5", "h2h_dominance_score",
+    # Classement
     "home_position_normalized", "home_points_gap_leader",
     "home_points_gap_relegation",
     "away_position_normalized", "away_points_gap_leader",
     "away_points_gap_relegation",
     "points_gap_between_teams",
+    # Ligue & contexte
     "league_goals_avg", "league_btts_rate",
     "league_over25_rate", "league_volatility",
     "match_importance_score", "game_week_normalized",
+    # Tirs, corners, possession (physique)
+    "home_shots_avg_5m", "home_shots_on_target_avg_5m",
+    "home_corners_avg_5m", "home_possession_avg_5m",
+    "home_conversion_rate_5m", "home_shot_efficiency_5m",
+    "home_goals_ht_avg_5m", "home_over15_ht_rate_5m",
+    "home_fatigue_score",
+    "away_shots_avg_5m", "away_shots_on_target_avg_5m",
+    "away_corners_avg_5m", "away_possession_avg_5m",
+    "away_conversion_rate_5m", "away_shot_efficiency_5m",
+    "away_goals_ht_avg_5m", "away_over15_ht_rate_5m",
+    "away_fatigue_score",
+    # Arbitre
+    "referee_avg_goals", "referee_home_bias", "referee_goals_volatility",
 ]
 
 MARCHES = {
-    "over25": "over25",
-    "btts": "btts",
+    "over25":   "over25",
+    "btts":     "btts",
+    "over15_ht": None,  # calculé à la volée depuis home_goals_ht + away_goals_ht
 }
 
 
@@ -84,6 +102,8 @@ class ModelTrainer:
                 {colonnes_sql},
                 m.over25,
                 m.btts,
+                m.home_goals_ht,
+                m.away_goals_ht,
                 m.result_1x2,
                 m.total_goals,
                 m.match_timestamp
@@ -114,6 +134,13 @@ class ModelTrainer:
             X.append(features)
             labels["over25"].append(int(row["over25"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
+            # over15_ht : calculé à partir des buts de mi-temps
+            hg_ht = row["home_goals_ht"]
+            ag_ht = row["away_goals_ht"]
+            if hg_ht is not None and ag_ht is not None:
+                labels["over15_ht"].append(int((hg_ht + ag_ht) > 1))
+            else:
+                labels["over15_ht"].append(None)
 
         X_array = np.array(X, dtype=np.float32)
 
@@ -136,9 +163,25 @@ class ModelTrainer:
             },
         )
 
+        # Pour over15_ht, construire un array masqué (ignorer les None)
+        labels_arrays = {}
+        for marche, vals in labels.items():
+            if marche == "over15_ht":
+                valides = [(i, v) for i, v in enumerate(vals) if v is not None]
+                if valides:
+                    idx, yvals = zip(*valides)
+                    labels_arrays["over15_ht"] = (
+                        np.array(list(idx)),
+                        np.array(list(yvals)),
+                    )
+                else:
+                    labels_arrays["over15_ht"] = (np.array([]), np.array([]))
+            else:
+                labels_arrays[marche] = np.array(vals)
+
         return {
             "X": X_array,
-            "labels": {k: np.array(v) for k, v in labels.items()},
+            "labels": labels_arrays,
             "n_matchs": len(X),
             "training_data_start": self._timestamp_vers_iso(rows[0]["match_timestamp"]),
             "training_data_end": self._timestamp_vers_iso(rows[-1]["match_timestamp"]),
@@ -170,6 +213,12 @@ class ModelTrainer:
         lr = LogisticRegressionPredictor(marche)
         meta = MetaModel(marche)
 
+        # ── Stacking OOF : génère des prédictions hors-échantillon
+        #    sur le set d'entraînement pour apprendre les poids du méta-apprenant
+        if len(X_train) >= 100:
+            self._entrainer_stacking_oof(meta, marche, X_train, y_train)
+
+        # Entraînement final sur l'intégralité du set d'entraînement
         xgb.entrainer(X_train, y_train)
         rf.entrainer(X_train, y_train)
         lr.entrainer(X_train, y_train)
@@ -216,9 +265,22 @@ class ModelTrainer:
         X = donnees["X"]
         resultats = {}
 
-        for marche, col_label in MARCHES.items():
-            y = donnees["labels"][marche]
-            metriques = self.entrainer_marche(marche, X, y)
+        for marche in MARCHES:
+            label_data = donnees["labels"][marche]
+            # over15_ht : (indices, y) — sous-ensemble de X
+            if isinstance(label_data, tuple):
+                idx, y = label_data
+                if len(idx) == 0:
+                    logger.warning_ctx(
+                        "Marché ignoré : aucune donnée HT disponible",
+                        context={"marche": marche},
+                    )
+                    continue
+                X_marche = X[list(idx)]
+            else:
+                X_marche = X
+                y = label_data
+            metriques = self.entrainer_marche(marche, X_marche, y)
             resultats[marche] = metriques
 
         chemin = self._sauvegarder_modeles()
@@ -273,6 +335,59 @@ class ModelTrainer:
                 )
 
         return predictions
+
+    def _entrainer_stacking_oof(
+        self,
+        meta: MetaModel,
+        marche: str,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        n_splits: int = 5,
+    ) -> None:
+        """
+        Génère des prédictions OOF (out-of-fold) par time-series split
+        et entraîne le méta-apprenant de stacking.
+        """
+        try:
+            from sklearn.model_selection import TimeSeriesSplit
+
+            tscv = TimeSeriesSplit(n_splits=n_splits)
+            oof_xgb = np.zeros(len(X_train))
+            oof_rf = np.zeros(len(X_train))
+            oof_lr = np.zeros(len(X_train))
+
+            for train_idx, val_idx in tscv.split(X_train):
+                if len(train_idx) < 20 or len(val_idx) < 5:
+                    continue
+                X_f = X_train[train_idx]
+                y_f = y_train[train_idx]
+                X_v = X_train[val_idx]
+
+                xgb_f = XGBoostPredictor(marche)
+                rf_f = RandomForestPredictor(marche)
+                lr_f = LogisticRegressionPredictor(marche)
+
+                xgb_f.entrainer(X_f, y_f)
+                rf_f.entrainer(X_f, y_f)
+                lr_f.entrainer(X_f, y_f)
+
+                p = xgb_f.predire_proba(X_v)
+                if p is not None:
+                    oof_xgb[val_idx] = p
+                p = rf_f.predire_proba(X_v)
+                if p is not None:
+                    oof_rf[val_idx] = p
+                p = lr_f.predire_proba(X_v)
+                if p is not None:
+                    oof_lr[val_idx] = p
+
+            meta.entrainer_stacking(oof_xgb, oof_rf, oof_lr, y_train)
+
+        except Exception as e:
+            logger.error_ctx(
+                "Erreur génération OOF stacking",
+                context={"marche": marche, "erreur": str(e)},
+            )
 
     def _calculer_metriques(
         self,

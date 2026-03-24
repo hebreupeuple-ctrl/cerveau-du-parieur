@@ -9,7 +9,7 @@ from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SEUIL_EV_MINIMUM = 0.03
+SEUIL_EV_MINIMUM = 0.05      # Relevé de 3 % à 5 % pour plus de sélectivité
 SEUIL_EDGE_MINIMUM = 0.05
 
 
@@ -49,6 +49,23 @@ def calculer_ev(
     return round((probabilite_modele * cote) - 1.0, 4)
 
 
+def seuil_ev_adaptatif(
+    probabilite_modele: float,
+    seuil_base: float = SEUIL_EV_MINIMUM,
+) -> float:
+    """
+    Ajuste le seuil EV en fonction de la confiance du modèle.
+    Plus la proba est haute, plus on tolère un EV légèrement plus faible
+    (signal fort = on accepte une marge de valeur réduite).
+    La réduction maximale est de 20 % du seuil de base.
+    """
+    if probabilite_modele >= 0.80:
+        return seuil_base * 0.80
+    if probabilite_modele >= 0.70:
+        return seuil_base * 0.90
+    return seuil_base
+
+
 def detecter_valeur(
     probabilite_modele: float,
     probabilite_bookmaker: float,
@@ -58,14 +75,31 @@ def detecter_valeur(
 ) -> bool:
     """
     Detecte si un pari a une valeur positive suffisante.
-    Les deux conditions doivent etre satisfaites :
-    1. EV superieur au seuil minimum
-    2. Edge superieur au seuil minimum
+    Le seuil EV est adaptatif selon la confiance du modèle.
     """
     ev = calculer_ev(probabilite_modele, cote)
     edge = probabilite_modele - probabilite_bookmaker
+    seuil_ev_reel = seuil_ev_adaptatif(probabilite_modele, seuil_ev)
 
-    return ev >= seuil_ev and edge >= seuil_edge
+    return ev >= seuil_ev_reel and edge >= seuil_edge
+
+
+def detecter_mouvement_sharp(
+    cotes_disponibles: dict,
+    marche_cote_key: str,
+) -> bool:
+    """
+    Détecte un mouvement de cote dit 'sharp' (action des parieurs professionnels).
+    Un mouvement est sharp si la cote a baissé depuis l'ouverture (cote_ouverture > cote_actuelle)
+    ET que le mouvement est supérieur à 5 % de la cote d'ouverture.
+    Cela indique que de l'argent intelligent a parié dans ce sens.
+    """
+    movement_key = marche_cote_key.replace("odds_", "movement_")
+    movement = cotes_disponibles.get(movement_key)
+    if movement is None:
+        return False
+    # movement > 0 : cote a baissé depuis l'ouverture (signal sharp favorable)
+    return float(movement) > 0.05
 
 
 def analyser_match(
@@ -84,54 +118,54 @@ def analyser_match(
     mapping_marches = {
         "over25": {
             "cote_key": "odds_over25",
-            "prob_key": "odds_over25",
             "label": "Plus de 2.5 buts",
         },
         "btts": {
             "cote_key": "odds_btts_yes",
-            "prob_key": "odds_btts_yes",
             "label": "Les deux equipes marquent",
         },
         "over15": {
             "cote_key": "odds_over15",
-            "prob_key": "odds_over15",
             "label": "Plus de 1.5 buts",
+        },
+        "over15_ht": {
+            "cote_key": "odds_over15_ht",
+            "label": "Plus de 1.5 buts (mi-temps)",
         },
         "1x2_home": {
             "cote_key": "odds_home",
-            "prob_key": "odds_home",
             "label": "Victoire domicile",
         },
         "1x2_draw": {
             "cote_key": "odds_draw",
-            "prob_key": "odds_draw",
             "label": "Match nul",
         },
         "1x2_away": {
             "cote_key": "odds_away",
-            "prob_key": "odds_away",
             "label": "Victoire exterieur",
         },
     }
 
     prob_marche_modele = {
-        "over25": probabilites_modele.get("prob_over25"),
-        "over15": probabilites_modele.get("prob_over15"),
-        "btts": probabilites_modele.get("prob_btts"),
-        "1x2_home": probabilites_modele.get("prob_home_win"),
-        "1x2_draw": probabilites_modele.get("prob_draw"),
-        "1x2_away": probabilites_modele.get("prob_away_win"),
+        "over25":    probabilites_modele.get("prob_over25"),
+        "over15":    probabilites_modele.get("prob_over15"),
+        "over15_ht": probabilites_modele.get("prob_over15_ht"),
+        "btts":      probabilites_modele.get("prob_btts"),
+        "1x2_home":  probabilites_modele.get("prob_home_win"),
+        "1x2_draw":  probabilites_modele.get("prob_draw"),
+        "1x2_away":  probabilites_modele.get("prob_away_win"),
     }
 
     # Pré-calcul des probabilités implicites corrigées pour les marchés binaires
-    # (over/under, btts) : on corrige la marge si les deux côtés sont disponibles
+    # (over/under, btts, HT) : on corrige la marge si les deux côtés sont disponibles
     corrections_binaires = {}
     paires_binaires = [
-        ("odds_over15", "odds_under15"),
-        ("odds_over25", "odds_under25"),
-        ("odds_over35", "odds_under35"),
-        ("odds_over45", "odds_under45"),
-        ("odds_btts_yes", "odds_btts_no"),
+        ("odds_over15",    "odds_under15"),
+        ("odds_over25",    "odds_under25"),
+        ("odds_over35",    "odds_under35"),
+        ("odds_over45",    "odds_under45"),
+        ("odds_btts_yes",  "odds_btts_no"),
+        ("odds_over15_ht", "odds_under15_ht"),
     ]
     for cle_yes, cle_no in paires_binaires:
         c_yes = cotes_disponibles.get(cle_yes)
@@ -153,9 +187,9 @@ def analyser_match(
             corrections_binaires["odds_draw"] = (1.0 / c_draw) / somme_1x2
             corrections_binaires["odds_away"] = (1.0 / c_away) / somme_1x2
 
-    for marche, config in mapping_marches.items():
+    for marche, cfg in mapping_marches.items():
         prob_modele = prob_marche_modele.get(marche)
-        cote_raw = cotes_disponibles.get(config["cote_key"])
+        cote_raw = cotes_disponibles.get(cfg["cote_key"])
 
         if not prob_modele or not cote_raw:
             continue
@@ -168,7 +202,7 @@ def analyser_match(
 
         # Probabilité bookmaker corrigée de la marge si disponible, sinon brute
         prob_bk_corrigee = corrections_binaires.get(
-            config["cote_key"], 1.0 / cote_raw
+            cfg["cote_key"], 1.0 / cote_raw
         )
 
         ev = calculer_ev(prob_modele, cote_raw)
@@ -181,15 +215,17 @@ def analyser_match(
         )
 
         if a_valeur:
+            is_sharp = detecter_mouvement_sharp(cotes_disponibles, cfg["cote_key"])
             opportunites.append({
                 "marche": marche,
-                "label": config["label"],
+                "label": cfg["label"],
                 "probabilite_modele": round(prob_modele, 4),
                 "probabilite_bookmaker": round(prob_bk_corrigee, 4),
                 "edge": round(edge, 4),
                 "cote": cote_raw,
                 "ev": ev,
                 "confiance": round(prob_modele, 4),
+                "sharp_signal": is_sharp,
             })
 
     opportunites.sort(key=lambda x: x["ev"], reverse=True)

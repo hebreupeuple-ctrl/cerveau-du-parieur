@@ -7,7 +7,7 @@ import sqlite3
 import math
 from typing import Optional
 
-XI = 0.0065
+XI = 0.014  # demi-vie ≈ 49 jours (forme récente plus réactive)
 
 
 def calculer_features_forme(

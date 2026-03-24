@@ -43,6 +43,8 @@ class FeaturePipeline:
             from backend.features.groups.contexte import calculer_features_contexte
             from backend.features.groups.ligue import calculer_features_ligue
             from backend.features.groups.classement import calculer_features_classement
+            from backend.features.groups.shots_corners import calculer_features_shots_corners
+            from backend.features.groups.arbitre import calculer_features_arbitre
 
             features = {"match_id": match_id, "max_time_used": max_time}
 
@@ -102,6 +104,30 @@ class FeaturePipeline:
                 max_time=max_time,
             )
             features.update(classement)
+
+            # Groupe 9 — Tirs, corners, possession, mi-temps, fatigue
+            sc_home = calculer_features_shots_corners(
+                conn=self.conn,
+                team_id=home_team_id,
+                max_time=max_time,
+            )
+            sc_away = calculer_features_shots_corners(
+                conn=self.conn,
+                team_id=away_team_id,
+                max_time=max_time,
+            )
+            for k, v in sc_home.items():
+                features[f"home_{k}"] = v
+            for k, v in sc_away.items():
+                features[f"away_{k}"] = v
+
+            # Groupe 10 — Arbitre
+            arbitre = calculer_features_arbitre(
+                conn=self.conn,
+                match_id=match_id,
+                max_time=max_time,
+            )
+            features.update(arbitre)
 
             return features
 

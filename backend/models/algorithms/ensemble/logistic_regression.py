@@ -32,6 +32,7 @@ class LogisticRegressionPredictor:
             self.modele = LogisticRegression(
                 C=1.0,
                 max_iter=1000,
+                class_weight="balanced",
                 random_state=42,
                 n_jobs=-1,
             )

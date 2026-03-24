@@ -11,7 +11,7 @@ from backend.database.connection import obtenir_connexion
 
 logger = get_logger(__name__)
 
-XI = 0.0065
+XI = 0.014  # demi-vie ≈ 49 jours (forme récente plus réactive)
 RHO = -0.13
 
 

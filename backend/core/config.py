@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # Seuils du système
     MIN_CONFIDENCE_SIMPLE: float = 0.60
     MIN_CONFIDENCE_COMBINE: float = 0.65
-    MIN_EV_THRESHOLD: float = 0.03
+    MIN_EV_THRESHOLD: float = 0.05   # Relevé de 3 % à 5 % pour plus de sélectivité
     MIN_PROB_EDGE: float = 0.05
     URGENCY_THRESHOLD: float = 0.85
 
@@ -73,8 +73,8 @@ class Settings(BaseSettings):
     PROTECTION_THRESHOLD: float = 0.80
     SUSPENSION_THRESHOLD: float = 0.60
 
-    # Dixon-Coles
-    DC_XI: float = 0.0065
+    # Dixon-Coles — demi-vie ≈ 49 jours (plus réactif)
+    DC_XI: float = 0.014
     DC_RHO: float = -0.13
 
     # Modèles

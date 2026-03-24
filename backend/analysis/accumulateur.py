@@ -219,6 +219,11 @@ class GenerateurPronostics:
             else:
                 result[k] = v_dc
 
+        # Marché HT : uniquement piloté par ML (DC ne modèle pas la mi-temps)
+        ml_over15_ht = pred_ml.get("ml_prob_over15_ht")
+        if ml_over15_ht is not None:
+            result["prob_over15_ht"] = round(float(ml_over15_ht), 4)
+
         return result
 
     def _obtenir_cotes(self, match_id: int) -> dict:
