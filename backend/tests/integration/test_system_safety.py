@@ -2,6 +2,7 @@ import os
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -201,6 +202,116 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
 
         service_a.release("system_pipeline", token)
         self.assertIsNotNone(service_b.acquire("system_pipeline"))
+
+    def test_new_user_gets_pronostics_on_first_today_fetch(self):
+        with TestClient(app) as client:
+            self._register(client, "admin@example.com", "Password123!")
+            token = self._login(client, "admin@example.com", "Password123!")
+            headers = {"Authorization": f"Bearer {token}"}
+
+            conn = obtenir_connexion()
+            conn.execute(
+                """
+                INSERT INTO leagues (
+                    id, footystats_id, name, country, tier, group_type, priority
+                ) VALUES (1, 101, 'Test League', 'Test', 1, 'test', 1)
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO seasons (
+                    id, footystats_id, league_id, name, year,
+                    start_date, end_date, status
+                ) VALUES (1, 201, 1, '2026', 2026, '2026-01-01', '2026-12-31', 'active')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO teams (id, footystats_id, name, country)
+                VALUES (1, 301, 'Home', 'Test'), (2, 302, 'Away', 'Test')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO matches (
+                    id, footystats_id, season_id, league_id,
+                    home_team_id, away_team_id,
+                    match_date, match_timestamp, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    1,
+                    401,
+                    1,
+                    1,
+                    1,
+                    2,
+                    "2026-03-25",
+                    int(time.time()) + 7200,
+                    "upcoming",
+                ),
+            )
+            conn.commit()
+
+            def fake_generation(
+                conn,
+                user,
+                generateur=None,
+                max_pronostics=10,
+                replace_pending=True,
+                commit=False,
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO pronostics (
+                        user_id, match_id, market,
+                        model_probability, bookmaker_probability, probability_edge,
+                        expected_value, reference_bookmaker, reference_odds,
+                        confidence_score, kelly_fraction_used, kelly_raw,
+                        recommended_stake, bankroll_at_recommendation, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                    """,
+                    (
+                        user["id"],
+                        1,
+                        "over25",
+                        0.65,
+                        0.50,
+                        0.15,
+                        0.08,
+                        "footystats",
+                        2.10,
+                        0.72,
+                        0.125,
+                        0.08,
+                        10.0,
+                        user["current_bankroll"],
+                    ),
+                )
+                if commit:
+                    conn.commit()
+                return {
+                    "user_id": user["id"],
+                    "email": user["email"],
+                    "inserted": 1,
+                    "generated": 1,
+                }
+
+            with patch(
+                "backend.scheduler.tasks.automation.generer_et_sauvegarder_pronostics_utilisateur",
+                side_effect=fake_generation,
+            ) as mocked_generation:
+                response = client.get(
+                    "/api/v1/pronostics/today",
+                    headers=headers,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                len(response.json()["data"]["pronostics"]),
+                1,
+            )
+            self.assertEqual(mocked_generation.call_count, 1)
 
 
 if __name__ == "__main__":

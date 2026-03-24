@@ -156,56 +156,16 @@ def regenerer_pronostics(
         by_user = {}
 
         for user in users:
-            pronostics = generateur.generer_pronostics_du_jour(
-                user_id=user["id"],
-                bankroll=user["current_bankroll"],
-                bankroll_initiale=user["initial_bankroll"],
-                fraction_override=user["kelly_fraction"],
+            resultat = generer_et_sauvegarder_pronostics_utilisateur(
+                conn=conn,
+                user=user,
+                generateur=generateur,
                 max_pronostics=max_pronostics,
+                replace_pending=True,
+                commit=False,
             )
-
-            conn.execute(
-                """
-                DELETE FROM pronostics
-                WHERE user_id = ?
-                AND status = 'pending'
-                """,
-                (user["id"],),
-            )
-
-            inserted = 0
-            for pronostic in pronostics:
-                conn.execute(
-                    """
-                    INSERT INTO pronostics (
-                        user_id, match_id, market,
-                        model_probability, bookmaker_probability, probability_edge,
-                        expected_value, reference_bookmaker, reference_odds,
-                        confidence_score, kelly_fraction_used, kelly_raw,
-                        recommended_stake, bankroll_at_recommendation, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-                    """,
-                    (
-                        user["id"],
-                        pronostic["match_id"],
-                        pronostic["marche"],
-                        pronostic["probabilite_modele"],
-                        pronostic["probabilite_bookmaker"],
-                        pronostic["edge"],
-                        pronostic["ev"],
-                        "footystats",
-                        pronostic["cote"],
-                        pronostic["confiance"],
-                        pronostic["kelly_fraction"],
-                        pronostic["kelly_brut"],
-                        pronostic["mise_recommandee"],
-                        user["current_bankroll"],
-                    ),
-                )
-                inserted += 1
-
-            total_inserted += inserted
-            by_user[user["email"]] = inserted
+            total_inserted += resultat["inserted"]
+            by_user[user["email"]] = resultat["inserted"]
 
         conn.commit()
 
@@ -216,6 +176,78 @@ def regenerer_pronostics(
         }
     finally:
         conn.close()
+
+
+def generer_et_sauvegarder_pronostics_utilisateur(
+    conn: sqlite3.Connection,
+    user: sqlite3.Row | dict,
+    generateur: Optional[GenerateurPronostics] = None,
+    max_pronostics: int = 10,
+    replace_pending: bool = True,
+    commit: bool = False,
+) -> dict:
+    """
+    Génère puis sauvegarde les pronostics pending d'un utilisateur.
+    """
+    generateur = generateur or GenerateurPronostics(conn)
+    pronostics = generateur.generer_pronostics_du_jour(
+        user_id=user["id"],
+        bankroll=user["current_bankroll"],
+        bankroll_initiale=user["initial_bankroll"],
+        fraction_override=user["kelly_fraction"],
+        max_pronostics=max_pronostics,
+    )
+
+    if replace_pending:
+        conn.execute(
+            """
+            DELETE FROM pronostics
+            WHERE user_id = ?
+            AND status = 'pending'
+            """,
+            (user["id"],),
+        )
+
+    inserted = 0
+    for pronostic in pronostics:
+        conn.execute(
+            """
+            INSERT INTO pronostics (
+                user_id, match_id, market,
+                model_probability, bookmaker_probability, probability_edge,
+                expected_value, reference_bookmaker, reference_odds,
+                confidence_score, kelly_fraction_used, kelly_raw,
+                recommended_stake, bankroll_at_recommendation, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            """,
+            (
+                user["id"],
+                pronostic["match_id"],
+                pronostic["marche"],
+                pronostic["probabilite_modele"],
+                pronostic["probabilite_bookmaker"],
+                pronostic["edge"],
+                pronostic["ev"],
+                "footystats",
+                pronostic["cote"],
+                pronostic["confiance"],
+                pronostic["kelly_fraction"],
+                pronostic["kelly_brut"],
+                pronostic["mise_recommandee"],
+                user["current_bankroll"],
+            ),
+        )
+        inserted += 1
+
+    if commit:
+        conn.commit()
+
+    return {
+        "user_id": user["id"],
+        "email": user["email"],
+        "inserted": inserted,
+        "generated": len(pronostics),
+    }
 
 
 async def entrainer_modele() -> dict:

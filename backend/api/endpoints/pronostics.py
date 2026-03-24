@@ -3,7 +3,6 @@ Endpoints pronostics.
 """
 
 import time
-import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -11,10 +10,11 @@ from pydantic import BaseModel, Field
 import sqlite3
 
 from backend.api.dependencies import get_db, get_current_user
-from backend.analysis.accumulateur import GenerateurPronostics
 from backend.core.config import settings
+from backend.core.logging import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def reponse_succes(data: dict):
@@ -25,15 +25,13 @@ def reponse_succes(data: dict):
     })
 
 
-@router.get("/today")
-async def pronostics_du_jour(
-    current_user: dict = Depends(get_current_user),
-    conn: sqlite3.Connection = Depends(get_db),
+def _charger_pronostics_pending(
+    conn: sqlite3.Connection,
+    user_id: int,
+    maintenant: int,
+    dans_48h: int,
 ):
-    maintenant = int(time.time())
-    dans_48h = maintenant + (48 * 3600)
-
-    pronostics_db = conn.execute(
+    return conn.execute(
         """
         SELECT p.*,
                m.match_timestamp, m.home_team_id, m.away_team_id,
@@ -49,8 +47,69 @@ async def pronostics_du_jour(
         AND m.match_timestamp BETWEEN ? AND ?
         ORDER BY p.confidence_score DESC
         """,
-        (current_user["id"], maintenant, dans_48h),
+        (user_id, maintenant, dans_48h),
     ).fetchall()
+
+
+@router.get("/today")
+async def pronostics_du_jour(
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    maintenant = int(time.time())
+    dans_48h = maintenant + (48 * 3600)
+
+    pronostics_db = _charger_pronostics_pending(
+        conn,
+        current_user["id"],
+        maintenant,
+        dans_48h,
+    )
+
+    if not pronostics_db:
+        existing_window_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM pronostics p
+            JOIN matches m ON p.match_id = m.id
+            WHERE p.user_id = ?
+            AND m.match_timestamp BETWEEN ? AND ?
+            """,
+            (current_user["id"], maintenant, dans_48h),
+        ).fetchone()[0]
+
+        if existing_window_count == 0:
+            from backend.scheduler.tasks.automation import (
+                generer_et_sauvegarder_pronostics_utilisateur,
+            )
+
+            user_row = conn.execute(
+                "SELECT * FROM users WHERE id = ?",
+                (current_user["id"],),
+            ).fetchone()
+
+            if user_row:
+                resultat = generer_et_sauvegarder_pronostics_utilisateur(
+                    conn=conn,
+                    user=user_row,
+                    max_pronostics=10,
+                    replace_pending=True,
+                    commit=True,
+                )
+                if resultat["inserted"] > 0:
+                    logger.info_ctx(
+                        "Pronostics auto-generes a la premiere ouverture",
+                        context={
+                            "user_id": current_user["id"],
+                            "inserted": resultat["inserted"],
+                        },
+                    )
+                    pronostics_db = _charger_pronostics_pending(
+                        conn,
+                        current_user["id"],
+                        maintenant,
+                        dans_48h,
+                    )
 
     pronostics_formatted = []
     for p in pronostics_db:
