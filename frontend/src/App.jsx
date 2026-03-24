@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Provider } from 'react-redux'
 import { store } from './store/index.js'
 import BottomNav from './components/navigation/BottomNav.jsx'
@@ -7,6 +7,7 @@ import Performance from './screens/Performance.jsx'
 import Historique from './screens/Historique.jsx'
 import Analyse from './screens/Analyse.jsx'
 import Parametres from './screens/Parametres.jsx'
+import Login from './screens/Login.jsx'
 
 const screens = {
   today: Aujourd_hui,
@@ -18,6 +19,21 @@ const screens = {
 
 function AppContent() {
   const [activeScreen, setActiveScreen] = useState('today')
+  const [token, setToken] = useState(localStorage.getItem('token'))
+
+  const handleLogin = (newToken) => {
+    setToken(newToken)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    setToken(null)
+  }
+
+  if (!token) {
+    return <Login onLogin={handleLogin} />
+  }
+
   const Screen = screens[activeScreen]
 
   return (
@@ -31,7 +47,7 @@ function AppContent() {
       position: 'relative',
     }}>
       <div style={{ paddingBottom: '80px' }}>
-        <Screen />
+        <Screen onLogout={handleLogout} />
       </div>
       <BottomNav active={activeScreen} onChange={setActiveScreen} />
     </div>
