@@ -12,6 +12,7 @@ from backend.core.logging import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+manual_backfill_lock = asyncio.Lock()
 manual_retrain_lock = asyncio.Lock()
 
 
@@ -23,6 +24,10 @@ async def health():
 @router.get("/status")
 async def status():
     from backend.database.connection import obtenir_connexion
+    from backend.scheduler.tasks.automation import (
+        obtenir_resume_features_historiques,
+    )
+
     conn = obtenir_connexion()
 
     cursor = conn.execute("SELECT COUNT(*) FROM matches")
@@ -35,6 +40,7 @@ async def status():
 
     cursor = conn.execute("SELECT COUNT(*) FROM match_features")
     total_features = cursor.fetchone()[0]
+    historical_features = obtenir_resume_features_historiques(conn)
 
     return JSONResponse(
         content={
@@ -45,6 +51,7 @@ async def status():
                 "total_matchs": total_matchs,
                 "matchs_a_venir": matchs_a_venir,
                 "total_features": total_features,
+                **historical_features,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
@@ -106,6 +113,77 @@ async def manual_sync(
     )
 
 
+@router.post("/manual-feature-backfill")
+async def manual_feature_backfill(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Déclenche un lot manuel de backfill des features historiques.
+    """
+    if manual_retrain_lock.locked():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "RETRAIN_IN_PROGRESS",
+                    "message": "Attends la fin de l'entraînement avant le backfill",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
+    if manual_backfill_lock.locked():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "BACKFILL_IN_PROGRESS",
+                    "message": "Un backfill historique est déjà en cours",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
+    from backend.scheduler.tasks.automation import (
+        backfill_features_historiques,
+    )
+
+    logger.info_ctx(
+        "Backfill historique manuel demande",
+        context={"user_id": current_user["id"]},
+    )
+
+    async with manual_backfill_lock:
+        resultat = await backfill_features_historiques()
+
+    logger.info_ctx(
+        "Backfill historique manuel termine",
+        context={
+            "user_id": current_user["id"],
+            "processed": resultat.get("processed", 0),
+            "remaining": resultat.get("after", {}).get(
+                "features_historiques_manquantes",
+            ),
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": resultat,
+            "meta": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+    )
+
+
 @router.post("/manual-retrain")
 async def manual_retrain(
     current_user: dict = Depends(get_current_user),
@@ -113,6 +191,21 @@ async def manual_retrain(
     """
     Déclenche un réentraînement manuel du modèle actif.
     """
+    if manual_backfill_lock.locked():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "BACKFILL_IN_PROGRESS",
+                    "message": "Attends la fin du backfill historique avant l'entraînement",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
     if manual_retrain_lock.locked():
         return JSONResponse(
             status_code=409,

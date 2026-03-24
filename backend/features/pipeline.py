@@ -119,6 +119,16 @@ class FeaturePipeline:
         """
         Sauvegarde les features calculées dans la base.
         """
+        return self._sauvegarder_features(features, commit=True)
+
+    def _sauvegarder_features(
+        self,
+        features: dict,
+        commit: bool,
+    ) -> bool:
+        """
+        Sauvegarde les features calculées dans la base.
+        """
         try:
             colonnes_valides = self._obtenir_colonnes_match_features()
             colonnes = [
@@ -141,7 +151,8 @@ class FeaturePipeline:
                 """,
                 valeurs,
             )
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
             return True
 
         except Exception as e:
@@ -172,6 +183,7 @@ class FeaturePipeline:
         away_team_id: int,
         league_id: int,
         game_week: int = None,
+        commit: bool = True,
     ) -> bool:
         """
         Calcule et sauvegarde les features en une seule opération.
@@ -188,4 +200,4 @@ class FeaturePipeline:
         if features is None:
             return False
 
-        return self.sauvegarder_features(features)
+        return self._sauvegarder_features(features, commit=commit)

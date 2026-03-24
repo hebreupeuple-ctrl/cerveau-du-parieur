@@ -7,6 +7,7 @@ import sqlite3
 import time
 from typing import Optional, Sequence
 
+from backend.core.config import settings
 from backend.analysis.accumulateur import GenerateurPronostics
 from backend.data.collector import DataCollector
 from backend.data.sync import collecter_nouvelles_ligues, synchroniser_ligues
@@ -232,6 +233,139 @@ def _entrainer_modele_sync() -> dict:
         return {
             "markets": list(resultats.keys()),
             "metrics": resultats,
+        }
+    finally:
+        conn.close()
+
+
+def obtenir_resume_features_historiques(
+    conn: Optional[sqlite3.Connection] = None,
+) -> dict:
+    """
+    Retourne l'état du backfill historique des features.
+    """
+    own_conn = conn is None
+    conn = conn or creer_connexion()
+    try:
+        matches_complete = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM matches
+            WHERE status = 'complete'
+            """
+        ).fetchone()[0]
+
+        features_historiques_calculees = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM match_features mf
+            JOIN matches m ON m.id = mf.match_id
+            WHERE m.status = 'complete'
+            """
+        ).fetchone()[0]
+
+        features_historiques_manquantes = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM matches m
+            LEFT JOIN match_features mf ON mf.match_id = m.id
+            WHERE m.status = 'complete'
+            AND mf.match_id IS NULL
+            """
+        ).fetchone()[0]
+
+        coverage = round(
+            (
+                features_historiques_calculees
+                / max(matches_complete, 1)
+            ) * 100,
+            2,
+        ) if matches_complete > 0 else 0.0
+
+        return {
+            "matches_complete": matches_complete,
+            "features_historiques_calculees": (
+                features_historiques_calculees
+            ),
+            "features_historiques_manquantes": (
+                features_historiques_manquantes
+            ),
+            "historical_backfill_coverage_pct": coverage,
+        }
+    finally:
+        if own_conn:
+            conn.close()
+
+
+async def backfill_features_historiques(
+    batch_size: Optional[int] = None,
+) -> dict:
+    """
+    Backfill un lot de features historiques pour les matchs complets.
+    """
+    effective_batch_size = (
+        batch_size
+        or settings.HISTORICAL_FEATURE_BACKFILL_BATCH_SIZE
+    )
+    return await asyncio.to_thread(
+        _backfill_features_historiques_sync,
+        effective_batch_size,
+    )
+
+
+def _backfill_features_historiques_sync(
+    batch_size: int,
+) -> dict:
+    conn = creer_connexion()
+    try:
+        before = obtenir_resume_features_historiques(conn)
+        pipeline = FeaturePipeline(conn)
+
+        rows = conn.execute(
+            """
+            SELECT m.id, m.match_timestamp, m.home_team_id,
+                   m.away_team_id, m.league_id, m.game_week
+            FROM matches m
+            LEFT JOIN match_features mf ON mf.match_id = m.id
+            WHERE m.status = 'complete'
+            AND mf.match_id IS NULL
+            ORDER BY m.match_timestamp ASC
+            LIMIT ?
+            """,
+            (batch_size,),
+        ).fetchall()
+
+        ok = 0
+        fail = 0
+
+        for index, match in enumerate(rows, start=1):
+            success = pipeline.calculer_et_sauvegarder(
+                match_id=match["id"],
+                match_timestamp=match["match_timestamp"],
+                home_team_id=match["home_team_id"],
+                away_team_id=match["away_team_id"],
+                league_id=match["league_id"],
+                game_week=match["game_week"],
+                commit=False,
+            )
+            if success:
+                ok += 1
+            else:
+                fail += 1
+
+            if index % 100 == 0:
+                conn.commit()
+
+        conn.commit()
+        after = obtenir_resume_features_historiques(conn)
+
+        return {
+            "batch_size": batch_size,
+            "processed": len(rows),
+            "ok": ok,
+            "fail": fail,
+            "before": before,
+            "after": after,
         }
     finally:
         conn.close()

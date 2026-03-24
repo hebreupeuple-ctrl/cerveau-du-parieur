@@ -12,6 +12,7 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.database.connection import creer_connexion
 from backend.scheduler.tasks.automation import (
+    backfill_features_historiques,
     entrainer_modele,
     rafraichir_matchs_cotes_et_pronostics,
     synchroniser_catalogue,
@@ -47,13 +48,13 @@ class AutomationScheduler:
                     settings.LEAGUE_SYNC_INTERVAL_HOURS * 3600,
                 )
             ),
-            asyncio.create_task(
-                self._boucle_job(
-                    "market_refresh",
-                    rafraichir_matchs_cotes_et_pronostics,
-                    settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
-                )
-            ),
+                asyncio.create_task(
+                    self._boucle_job(
+                        "market_refresh",
+                        rafraichir_matchs_cotes_et_pronostics,
+                        settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
+                    )
+                ),
             asyncio.create_task(
                 self._boucle_job(
                     "model_retrain",
@@ -65,6 +66,17 @@ class AutomationScheduler:
                 )
             ),
         ])
+
+        if settings.HISTORICAL_FEATURE_BACKFILL_ENABLED:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._boucle_job(
+                        "historical_feature_backfill",
+                        backfill_features_historiques,
+                        settings.HISTORICAL_FEATURE_BACKFILL_INTERVAL_MINUTES * 60,
+                    )
+                )
+            )
 
     async def stop(self) -> None:
         for task in self._tasks:
@@ -89,6 +101,11 @@ class AutomationScheduler:
             "market_refresh",
             rafraichir_matchs_cotes_et_pronostics,
         )
+        if settings.HISTORICAL_FEATURE_BACKFILL_ENABLED:
+            await self._executer_job(
+                "historical_feature_backfill",
+                backfill_features_historiques,
+            )
 
     async def _boucle_job(
         self,

@@ -10,6 +10,8 @@ export default function Parametres() {
   const [profile, setProfile] = useState(null)
   const [systemStatus, setSystemStatus] = useState(null)
   const [modelHealth, setModelHealth] = useState(null)
+  const [isBackfilling, setIsBackfilling] = useState(false)
+  const [backfillFeedback, setBackfillFeedback] = useState('')
   const [isRetraining, setIsRetraining] = useState(false)
   const [retrainFeedback, setRetrainFeedback] = useState('')
 
@@ -44,6 +46,33 @@ export default function Parametres() {
   useEffect(() => {
     chargerDonnees()
   }, [])
+
+  const lancerBackfill = async () => {
+    setIsBackfilling(true)
+    setBackfillFeedback('')
+
+    try {
+      const response = await api.post(
+        '/system/manual-feature-backfill',
+        {},
+        { timeout: 120000 }
+      )
+
+      const processed = response.data?.processed || 0
+      const remaining = response.data?.after?.features_historiques_manquantes
+
+      setBackfillFeedback(`Lot traité: ${processed} matchs. Reste: ${remaining ?? '—'}.`)
+      await chargerDonnees()
+    } catch (e) {
+      const message =
+        e?.error?.message ||
+        e?.message ||
+        "Impossible de lancer le backfill historique."
+      setBackfillFeedback(message)
+    } finally {
+      setIsBackfilling(false)
+    }
+  }
 
   const lancerEntrainement = async () => {
     setIsRetraining(true)
@@ -259,7 +288,7 @@ export default function Parametres() {
 
         <button
           onClick={lancerEntrainement}
-          disabled={isRetraining}
+          disabled={isRetraining || isBackfilling}
           style={{
             width: '100%',
             marginTop: '16px',
@@ -280,6 +309,70 @@ export default function Parametres() {
         {retrainFeedback && (
           <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
             {retrainFeedback}
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Sliders size={16} color="#666666" />
+          <span style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
+            Backfill historique
+          </span>
+        </div>
+
+        {[
+          { label: 'Matchs complets', value: systemStatus?.matches_complete ?? '—' },
+          { label: 'Features calculées', value: systemStatus?.features_historiques_calculees ?? '—' },
+          { label: 'Backlog restant', value: systemStatus?.features_historiques_manquantes ?? '—' },
+          {
+            label: 'Couverture',
+            value: systemStatus?.historical_backfill_coverage_pct !== undefined
+              ? `${systemStatus.historical_backfill_coverage_pct}%`
+              : '—'
+          },
+        ].map((item, i, arr) => (
+          <div
+            key={item.label}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: i < arr.length - 1 ? '12px' : 0,
+              marginBottom: i < arr.length - 1 ? '12px' : 0,
+              borderBottom: i < arr.length - 1 ? '1px solid #2E2E2E' : 'none',
+            }}
+          >
+            <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
+            <span style={{ fontSize: '13px', fontWeight: '500', color: '#F5F5F5' }}>
+              {item.value}
+            </span>
+          </div>
+        ))}
+
+        <button
+          onClick={lancerBackfill}
+          disabled={isBackfilling || isRetraining}
+          style={{
+            width: '100%',
+            marginTop: '16px',
+            padding: '12px',
+            borderRadius: '10px',
+            border: '1px solid #16A34A33',
+            backgroundColor: isBackfilling ? '#16653422' : '#16A34A22',
+            color: '#4ADE80',
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: isBackfilling ? 'wait' : 'pointer',
+            opacity: isBackfilling ? 0.7 : 1,
+          }}
+        >
+          {isBackfilling ? 'Backfill en cours...' : 'Lancer un lot de backfill'}
+        </button>
+
+        {backfillFeedback && (
+          <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
+            {backfillFeedback}
           </div>
         )}
       </Card>
