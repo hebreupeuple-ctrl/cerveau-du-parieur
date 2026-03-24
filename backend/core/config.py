@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
     ENCRYPTION_KEY: Optional[str] = None
+    ADMIN_EMAILS: str = ""
 
     # FootyStats API
     FOOTYSTATS_API_KEY: str = ""
@@ -88,6 +89,7 @@ class Settings(BaseSettings):
     HISTORICAL_FEATURE_BACKFILL_BATCH_SIZE: int = 1000
     MODEL_RETRAIN_INTERVAL_HOURS: int = 24
     MODEL_RETRAIN_INITIAL_DELAY_MINUTES: int = 10
+    SYSTEM_JOB_LOCK_LEASE_MINUTES: int = 120
 
     @field_validator("ENVIRONMENT")
     @classmethod
@@ -118,6 +120,14 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.ENVIRONMENT == "development"
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.ADMIN_EMAILS.split(",")
+            if email.strip()
+        }
 
 
 settings = Settings()

@@ -149,6 +149,7 @@ function PronosticCard({ pronostic, onPlace, onIgnore }) {
 
 export default function Aujourd_hui() {
   const [data, setData] = useState(null)
+  const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
@@ -164,8 +165,12 @@ export default function Aujourd_hui() {
         setLoading(false)
         return
       }
-      const res = await api.get('/pronostics/today')
-      setData(res.data)
+      const [pronosticsRes, meRes] = await Promise.all([
+        api.get('/pronostics/today'),
+        api.get('/auth/me'),
+      ])
+      setData(pronosticsRes.data)
+      setProfile(meRes.data)
     } catch (e) {
       setError('Erreur de connexion au serveur')
     } finally {
@@ -188,7 +193,7 @@ export default function Aujourd_hui() {
     } catch (e) {
       setSyncStatus({
         type: 'error',
-        message: 'Synchronisation impossible pour le moment',
+        message: e?.error?.message || e?.detail || 'Synchronisation impossible pour le moment',
       })
     } finally {
       setSyncing(false)
@@ -235,22 +240,24 @@ export default function Aujourd_hui() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            style={{
-              padding: '8px 12px',
-              borderRadius: '9999px',
-              border: '1px solid #333333',
-              backgroundColor: syncing ? '#1A1A1A' : '#242424',
-              color: syncing ? '#666666' : '#A0A0A0',
-              fontSize: '12px',
-              fontWeight: '600',
-              cursor: syncing ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {syncing ? 'Sync...' : 'Synchroniser'}
-          </button>
+          {profile?.is_admin && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '9999px',
+                border: '1px solid #333333',
+                backgroundColor: syncing ? '#1A1A1A' : '#242424',
+                color: syncing ? '#666666' : '#A0A0A0',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: syncing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {syncing ? 'Sync...' : 'Synchroniser'}
+            </button>
+          )}
           <button
             onClick={charger}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}

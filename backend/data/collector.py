@@ -75,8 +75,9 @@ class DataCollector:
 
         for ligue_data in data:
             nom = ligue_data.get("name", "")
+            league_footystats_id = ligue_data.get("id")
 
-            if nom not in LIGUES_PRINCIPALES:
+            if nom not in LIGUES_PRINCIPALES or not league_footystats_id:
                 continue
 
             config = LIGUES_PRINCIPALES[nom]
@@ -93,7 +94,7 @@ class DataCollector:
 
             # Sauvegarder la ligue
             league_id = self.league_repo.sauvegarder({
-                "footystats_id": derniere_saison.get("id"),
+                "footystats_id": league_footystats_id,
                 "name": nom,
                 "country": config["country"],
                 "tier": 1,

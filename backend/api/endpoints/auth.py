@@ -5,10 +5,10 @@ Endpoints d'authentification.
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import sqlite3
 
-from backend.api.dependencies import get_db, get_current_user
+from backend.api.dependencies import get_db, get_current_token, get_current_user
 from backend.core.security import (
     hasher_mot_de_passe,
     verifier_mot_de_passe,
@@ -25,9 +25,9 @@ router = APIRouter()
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    initial_bankroll: float = 150.0
-    kelly_fraction: float = 0.125
+    password: str = Field(min_length=8)
+    initial_bankroll: float = Field(default=150.0, gt=0)
+    kelly_fraction: float = Field(default=0.125, gt=0, le=1)
 
 
 class LoginRequest(BaseModel):
@@ -66,19 +66,27 @@ async def register(req: RegisterRequest, conn: sqlite3.Connection = Depends(get_
         )
 
     password_hash = hasher_mot_de_passe(req.password)
+    is_first_user = conn.execute(
+        "SELECT COUNT(*) FROM users"
+    ).fetchone()[0] == 0
+    is_admin = int(
+        is_first_user
+        or req.email.lower() in settings.admin_emails
+    )
 
     cursor = conn.execute(
         """
         INSERT INTO users (
             email, password_hash,
             initial_bankroll, current_bankroll,
-            kelly_fraction
-        ) VALUES (?, ?, ?, ?, ?)
+            kelly_fraction, is_admin
+        ) VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             req.email, password_hash,
             req.initial_bankroll, req.initial_bankroll,
             req.kelly_fraction,
+            is_admin,
         ),
     )
     conn.commit()
@@ -219,6 +227,7 @@ async def me(current_user: dict = Depends(get_current_user)):
     return reponse_succes({
         "id": current_user["id"],
         "email": current_user["email"],
+        "is_admin": bool(current_user.get("is_admin")),
         "initial_bankroll": current_user["initial_bankroll"],
         "current_bankroll": current_user["current_bankroll"],
         "kelly_fraction": current_user["kelly_fraction"],
@@ -231,11 +240,18 @@ async def me(current_user: dict = Depends(get_current_user)):
 @router.post("/logout")
 async def logout(
     current_user: dict = Depends(get_current_user),
+    current_token: str = Depends(get_current_token),
     conn: sqlite3.Connection = Depends(get_db),
 ):
+    token_hash = hasher_token(current_token)
     conn.execute(
-        "UPDATE user_tokens SET is_revoked = 1 WHERE user_id = ?",
-        (current_user["id"],),
+        """
+        UPDATE user_tokens
+        SET is_revoked = 1
+        WHERE user_id = ?
+        AND token_hash = ?
+        """,
+        (current_user["id"], token_hash),
     )
     conn.commit()
     return JSONResponse(status_code=204, content=None)

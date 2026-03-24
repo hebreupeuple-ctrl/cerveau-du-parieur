@@ -42,6 +42,7 @@ class GenerateurPronostics:
         roi_historique: Optional[float] = None,
         n_paris: int = 0,
         fraction_override: Optional[float] = None,
+        marches_autorises: Optional[set[str]] = None,
     ) -> list:
         """
         Genere les pronostics pour un match specifique.
@@ -120,6 +121,9 @@ class GenerateurPronostics:
 
         pronostics = []
         for opp in opportunites:
+            if marches_autorises and opp["marche"] not in marches_autorises:
+                continue
+
             kelly = calculer_kelly_complet(
                 probabilite=opp["probabilite_modele"],
                 cote=opp["cote"],
@@ -280,23 +284,30 @@ class GenerateurPronostics:
         """
         maintenant = int(time.time())
         dans_48h = maintenant + (48 * 3600)
+        leagues_autorisees = self._obtenir_leagues_autorisees(user_id)
+        marches_autorises = self._obtenir_marches_autorises(user_id)
 
-        matchs = self.conn.execute(
-            """
-            SELECT m.id, m.match_timestamp,
-                   t1.name as home_name,
-                   t2.name as away_name,
-                   l.name as league_name
-            FROM matches m
-            JOIN teams t1 ON m.home_team_id = t1.id
-            JOIN teams t2 ON m.away_team_id = t2.id
-            JOIN leagues l ON m.league_id = l.id
-            WHERE m.status = 'upcoming'
-            AND m.match_timestamp BETWEEN ? AND ?
-            ORDER BY m.match_timestamp ASC
-            """,
-            (maintenant, dans_48h),
-        ).fetchall()
+        if leagues_autorisees:
+            placeholders = ", ".join("?" for _ in leagues_autorisees)
+            matchs = self.conn.execute(
+                f"""
+                SELECT m.id, m.match_timestamp,
+                       t1.name as home_name,
+                       t2.name as away_name,
+                       l.name as league_name
+                FROM matches m
+                JOIN teams t1 ON m.home_team_id = t1.id
+                JOIN teams t2 ON m.away_team_id = t2.id
+                JOIN leagues l ON m.league_id = l.id
+                WHERE m.status = 'upcoming'
+                AND m.match_timestamp BETWEEN ? AND ?
+                AND m.league_id IN ({placeholders})
+                ORDER BY m.match_timestamp ASC
+                """,
+                (maintenant, dans_48h, *sorted(leagues_autorisees)),
+            ).fetchall()
+        else:
+            matchs = []
 
         logger.info_ctx(
             "Matchs a analyser",
@@ -314,6 +325,7 @@ class GenerateurPronostics:
                 roi_historique=roi_historique,
                 n_paris=n_paris,
                 fraction_override=fraction_override,
+                marches_autorises=marches_autorises,
             )
             tous_pronostics.extend(pronostics)
 
@@ -323,3 +335,36 @@ class GenerateurPronostics:
         )
 
         return tous_pronostics[:max_pronostics]
+
+    def _obtenir_leagues_autorisees(self, user_id: int) -> set[int]:
+        rows = self.conn.execute(
+            """
+            SELECT league_id
+            FROM user_leagues
+            WHERE user_id = ?
+            AND is_active = 1
+            """,
+            (user_id,),
+        ).fetchall()
+        if rows:
+            return {row["league_id"] for row in rows}
+
+        rows = self.conn.execute(
+            "SELECT id FROM leagues WHERE is_active = 1"
+        ).fetchall()
+        return {row["id"] for row in rows}
+
+    def _obtenir_marches_autorises(self, user_id: int) -> set[str]:
+        rows = self.conn.execute(
+            """
+            SELECT market
+            FROM user_markets
+            WHERE user_id = ?
+            AND is_active = 1
+            """,
+            (user_id,),
+        ).fetchall()
+        if rows:
+            return {row["market"] for row in rows}
+
+        return set()

@@ -11,6 +11,7 @@ from typing import Awaitable, Callable
 from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.database.connection import creer_connexion
+from backend.scheduler.locks import DistributedJobLockService
 from backend.scheduler.tasks.automation import (
     backfill_features_historiques,
     entrainer_modele,
@@ -19,6 +20,7 @@ from backend.scheduler.tasks.automation import (
 )
 
 logger = get_logger(__name__)
+SYSTEM_PIPELINE_RESOURCE = "system_pipeline"
 
 
 class AutomationScheduler:
@@ -26,6 +28,7 @@ class AutomationScheduler:
         self._tasks: list[asyncio.Task] = []
         self._locks: dict[str, asyncio.Lock] = {}
         self._started = False
+        self._distributed_locks = DistributedJobLockService()
 
     async def start(self) -> None:
         if self._started or not settings.SCHEDULER_ENABLED:
@@ -46,6 +49,7 @@ class AutomationScheduler:
                     "sync_leagues",
                     synchroniser_catalogue,
                     settings.LEAGUE_SYNC_INTERVAL_HOURS * 3600,
+                    resource_name=SYSTEM_PIPELINE_RESOURCE,
                 )
             ),
                 asyncio.create_task(
@@ -53,6 +57,7 @@ class AutomationScheduler:
                         "market_refresh",
                         rafraichir_matchs_cotes_et_pronostics,
                         settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
+                        resource_name=SYSTEM_PIPELINE_RESOURCE,
                     )
                 ),
             asyncio.create_task(
@@ -63,6 +68,7 @@ class AutomationScheduler:
                     initial_delay_seconds=(
                         settings.MODEL_RETRAIN_INITIAL_DELAY_MINUTES * 60
                     ),
+                    resource_name=SYSTEM_PIPELINE_RESOURCE,
                 )
             ),
         ])
@@ -74,6 +80,7 @@ class AutomationScheduler:
                         "historical_feature_backfill",
                         backfill_features_historiques,
                         settings.HISTORICAL_FEATURE_BACKFILL_INTERVAL_MINUTES * 60,
+                        resource_name=SYSTEM_PIPELINE_RESOURCE,
                     )
                 )
             )
@@ -96,15 +103,18 @@ class AutomationScheduler:
         await self._executer_job(
             "sync_leagues",
             synchroniser_catalogue,
+            resource_name=SYSTEM_PIPELINE_RESOURCE,
         )
         await self._executer_job(
             "market_refresh",
             rafraichir_matchs_cotes_et_pronostics,
+            resource_name=SYSTEM_PIPELINE_RESOURCE,
         )
         if settings.HISTORICAL_FEATURE_BACKFILL_ENABLED:
             await self._executer_job(
                 "historical_feature_backfill",
                 backfill_features_historiques,
+                resource_name=SYSTEM_PIPELINE_RESOURCE,
             )
 
     async def _boucle_job(
@@ -113,6 +123,7 @@ class AutomationScheduler:
         job_fn: Callable[[], Awaitable[dict]],
         interval_seconds: int,
         initial_delay_seconds: int = 0,
+        resource_name: str = None,
     ) -> None:
         try:
             if initial_delay_seconds > 0:
@@ -121,7 +132,11 @@ class AutomationScheduler:
                 await asyncio.sleep(interval_seconds)
 
             while True:
-                await self._executer_job(job_name, job_fn)
+                await self._executer_job(
+                    job_name,
+                    job_fn,
+                    resource_name=resource_name,
+                )
                 await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             raise
@@ -130,16 +145,35 @@ class AutomationScheduler:
         self,
         job_name: str,
         job_fn: Callable[[], Awaitable[dict]],
+        resource_name: str = None,
     ) -> None:
-        lock = self._locks.setdefault(job_name, asyncio.Lock())
+        resource_name = resource_name or job_name
+        lock = self._locks.setdefault(resource_name, asyncio.Lock())
         if lock.locked():
             logger.warning_ctx(
                 "Job ignore car deja en cours",
-                context={"job_name": job_name},
+                context={
+                    "job_name": job_name,
+                    "resource_name": resource_name,
+                },
             )
             return
 
         async with lock:
+            lock_token = await asyncio.to_thread(
+                self._distributed_locks.acquire,
+                resource_name,
+            )
+            if not lock_token:
+                logger.warning_ctx(
+                    "Job ignore car verrou distribue indisponible",
+                    context={
+                        "job_name": job_name,
+                        "resource_name": resource_name,
+                    },
+                )
+                return
+
             job_id = self._creer_job_log(job_name)
             debut = time.time()
 
@@ -172,6 +206,12 @@ class AutomationScheduler:
                         "job_name": job_name,
                         "erreur": str(exc),
                     },
+                )
+            finally:
+                await asyncio.to_thread(
+                    self._distributed_locks.release,
+                    resource_name,
+                    lock_token,
                 )
 
     def _creer_job_log(self, job_name: str) -> int:

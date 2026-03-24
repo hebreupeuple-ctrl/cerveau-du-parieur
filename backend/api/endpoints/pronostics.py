@@ -7,11 +7,12 @@ import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import sqlite3
 
 from backend.api.dependencies import get_db, get_current_user
 from backend.analysis.accumulateur import GenerateurPronostics
+from backend.core.config import settings
 
 router = APIRouter()
 
@@ -90,8 +91,8 @@ async def pronostics_du_jour(
 
 
 class PlaceRequest(BaseModel):
-    actual_stake: float
-    actual_odds: float
+    actual_stake: float = Field(gt=0)
+    actual_odds: float = Field(gt=1.0)
 
 
 @router.post("/{pronostic_id}/place")
@@ -101,43 +102,99 @@ async def placer_pari(
     current_user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ):
-    pronostic = conn.execute(
-        "SELECT * FROM pronostics WHERE id = ? AND user_id = ?",
-        (pronostic_id, current_user["id"]),
-    ).fetchone()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
 
-    if not pronostic:
-        raise HTTPException(status_code=404, detail="Pronostic introuvable")
+        pronostic = conn.execute(
+            "SELECT * FROM pronostics WHERE id = ? AND user_id = ?",
+            (pronostic_id, current_user["id"]),
+        ).fetchone()
 
-    if pronostic["status"] != "pending":
-        raise HTTPException(status_code=409, detail="Pari déjà placé ou ignoré")
+        if not pronostic:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Pronostic introuvable")
 
-    match = conn.execute(
-        "SELECT match_timestamp FROM matches WHERE id = ?",
-        (pronostic["match_id"],),
-    ).fetchone()
+        if pronostic["status"] != "pending":
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Pari déjà placé ou ignoré")
 
-    if match and match["match_timestamp"] < int(time.time()):
-        raise HTTPException(status_code=409, detail="Le match a déjà commencé")
+        match = conn.execute(
+            "SELECT match_timestamp FROM matches WHERE id = ?",
+            (pronostic["match_id"],),
+        ).fetchone()
 
-    conn.execute(
-        """
-        UPDATE pronostics SET
-            status = 'placed',
-            actual_stake = ?,
-            actual_odds = ?,
-            placed_at = datetime('now')
-        WHERE id = ?
-        """,
-        (req.actual_stake, req.actual_odds, pronostic_id),
-    )
+        if match and match["match_timestamp"] < int(time.time()):
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Le match a déjà commencé")
 
-    nouvelle_bankroll = current_user["current_bankroll"] - req.actual_stake
-    conn.execute(
-        "UPDATE users SET current_bankroll = ? WHERE id = ?",
-        (nouvelle_bankroll, current_user["id"]),
-    )
-    conn.commit()
+        user_row = conn.execute(
+            "SELECT current_bankroll FROM users WHERE id = ?",
+            (current_user["id"],),
+        ).fetchone()
+        bankroll_avant = user_row["current_bankroll"] if user_row else 0
+
+        if req.actual_stake < settings.MIN_STAKE:
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"Mise minimale: {settings.MIN_STAKE}",
+            )
+
+        if req.actual_stake > bankroll_avant:
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Bankroll insuffisante",
+            )
+
+        nouvelle_bankroll = round(bankroll_avant - req.actual_stake, 2)
+
+        conn.execute(
+            """
+            UPDATE pronostics SET
+                status = 'placed',
+                actual_stake = ?,
+                actual_odds = ?,
+                placed_at = datetime('now')
+            WHERE id = ?
+            """,
+            (req.actual_stake, req.actual_odds, pronostic_id),
+        )
+
+        conn.execute(
+            """
+            UPDATE users SET
+                current_bankroll = ?,
+                bankroll_updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (nouvelle_bankroll, current_user["id"]),
+        )
+
+        conn.execute(
+            """
+            INSERT INTO bankroll_transactions (
+                user_id, pronostic_id, transaction_type,
+                amount, balance_before, balance_after, reference_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                current_user["id"],
+                pronostic_id,
+                "bet_placed",
+                -req.actual_stake,
+                bankroll_avant,
+                nouvelle_bankroll,
+                f"Pari place sur {pronostic['market']}",
+            ),
+        )
+
+        conn.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        conn.rollback()
+        raise
 
     return reponse_succes({
         "pronostic_id": pronostic_id,

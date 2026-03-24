@@ -7,13 +7,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from backend.api.dependencies import get_current_user
+from backend.api.dependencies import get_current_admin_user
 from backend.core.logging import get_logger
+from backend.scheduler.locks import DistributedJobLockService
 
 router = APIRouter()
 logger = get_logger(__name__)
-manual_backfill_lock = asyncio.Lock()
-manual_retrain_lock = asyncio.Lock()
+manual_system_lock = asyncio.Lock()
+SYSTEM_PIPELINE_RESOURCE = "system_pipeline"
 
 
 @router.get("/health")
@@ -60,7 +61,7 @@ async def status():
 
 @router.post("/manual-sync")
 async def manual_sync(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_admin_user),
 ):
     """
     Déclenche une synchronisation légère à la demande :
@@ -74,17 +75,45 @@ async def manual_sync(
         synchroniser_catalogue,
     )
 
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
     logger.info_ctx(
         "Synchronisation manuelle demandee",
         context={"user_id": current_user["id"]},
     )
 
-    sync_ligues = await synchroniser_catalogue()
-    refresh = await rafraichir_matchs_cotes_et_pronostics(
-        heures=48,
-        user_ids=[current_user["id"]],
-        max_pronostics=10,
-    )
+    async with manual_system_lock:
+        try:
+            sync_ligues = await synchroniser_catalogue()
+            refresh = await rafraichir_matchs_cotes_et_pronostics(
+                heures=48,
+                user_ids=[current_user["id"]],
+                max_pronostics=10,
+            )
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
     inserted = refresh["pronostics"]["inserted"]
 
     logger.info_ctx(
@@ -115,34 +144,24 @@ async def manual_sync(
 
 @router.post("/manual-feature-backfill")
 async def manual_feature_backfill(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_admin_user),
 ):
     """
     Déclenche un lot manuel de backfill des features historiques.
     """
-    if manual_retrain_lock.locked():
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
         return JSONResponse(
             status_code=409,
             content={
                 "success": False,
                 "error": {
-                    "code": "RETRAIN_IN_PROGRESS",
-                    "message": "Attends la fin de l'entraînement avant le backfill",
-                },
-                "meta": {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        )
-
-    if manual_backfill_lock.locked():
-        return JSONResponse(
-            status_code=409,
-            content={
-                "success": False,
-                "error": {
-                    "code": "BACKFILL_IN_PROGRESS",
-                    "message": "Un backfill historique est déjà en cours",
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
                 },
                 "meta": {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -159,8 +178,15 @@ async def manual_feature_backfill(
         context={"user_id": current_user["id"]},
     )
 
-    async with manual_backfill_lock:
-        resultat = await backfill_features_historiques()
+    async with manual_system_lock:
+        try:
+            resultat = await backfill_features_historiques()
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
 
     logger.info_ctx(
         "Backfill historique manuel termine",
@@ -186,34 +212,24 @@ async def manual_feature_backfill(
 
 @router.post("/manual-retrain")
 async def manual_retrain(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_admin_user),
 ):
     """
     Déclenche un réentraînement manuel du modèle actif.
     """
-    if manual_backfill_lock.locked():
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
         return JSONResponse(
             status_code=409,
             content={
                 "success": False,
                 "error": {
-                    "code": "BACKFILL_IN_PROGRESS",
-                    "message": "Attends la fin du backfill historique avant l'entraînement",
-                },
-                "meta": {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        )
-
-    if manual_retrain_lock.locked():
-        return JSONResponse(
-            status_code=409,
-            content={
-                "success": False,
-                "error": {
-                    "code": "RETRAIN_IN_PROGRESS",
-                    "message": "Un entraînement est déjà en cours",
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
                 },
                 "meta": {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -229,8 +245,15 @@ async def manual_retrain(
         context={"user_id": current_user["id"]},
     )
 
-    async with manual_retrain_lock:
-        resultats = await entrainer_modele()
+    async with manual_system_lock:
+        try:
+            resultats = await entrainer_modele()
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
 
     conn = obtenir_connexion()
     version = conn.execute(

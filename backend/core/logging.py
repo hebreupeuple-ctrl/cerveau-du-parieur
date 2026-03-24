@@ -139,4 +139,7 @@ def get_logger(name: str) -> ContextLogger:
     Usage dans chaque fichier :
         logger = get_logger(__name__)
     """
-    return logging.getLogger(name)
+    logger = logging.getLogger(name)
+    if not isinstance(logger, ContextLogger):
+        logger.__class__ = ContextLogger
+    return logger

@@ -50,7 +50,14 @@ async def performance_summary(
     roi = total_profit / total_staked if total_staked > 0 else None
 
     model_version = conn.execute(
-        "SELECT version, brier_score_over25, auc_roc_over25, trained_at FROM model_versions WHERE is_active = 1 LIMIT 1"
+        """
+        SELECT version, brier_score_over25, auc_roc_over25,
+               trained_at, total_matches_trained,
+               training_data_start, training_data_end
+        FROM model_versions
+        WHERE is_active = 1
+        LIMIT 1
+        """
     ).fetchone()
 
     return reponse_succes({
@@ -80,10 +87,19 @@ async def performance_summary(
         },
         "by_market": [],
         "model_health": {
-            "brier_score": model_version["brier_score_over25"] if model_version else 0.2487,
-            "auc_roc": model_version["auc_roc_over25"] if model_version else 0.5776,
-            "last_retrain": model_version["trained_at"] if model_version else "2026-03-24",
-            "model_version": model_version["version"] if model_version else "2026.03.v1",
+            "brier_score": model_version["brier_score_over25"] if model_version else None,
+            "auc_roc": model_version["auc_roc_over25"] if model_version else None,
+            "last_retrain": model_version["trained_at"] if model_version else None,
+            "model_version": model_version["version"] if model_version else None,
+            "total_matches_trained": (
+                model_version["total_matches_trained"] if model_version else 0
+            ),
+            "training_data_start": (
+                model_version["training_data_start"] if model_version else None
+            ),
+            "training_data_end": (
+                model_version["training_data_end"] if model_version else None
+            ),
             "bias_alerts": [],
         },
     })

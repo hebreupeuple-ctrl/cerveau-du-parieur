@@ -80,9 +80,10 @@ async def synchroniser_ligues(
     for ligue_data in data:
         nom = ligue_data.get("name", "")
         country = ligue_data.get("country", "Unknown")
+        ligue_footystats_id = ligue_data.get("id")
         saisons = ligue_data.get("season", [])
 
-        if not isinstance(saisons, list) or not saisons:
+        if not ligue_footystats_id or not isinstance(saisons, list) or not saisons:
             continue
 
         derniere_saison = max(
@@ -97,6 +98,7 @@ async def synchroniser_ligues(
             nom_saison = annee
 
         ligues_footystats[nom] = {
+            "league_footystats_id": ligue_footystats_id,
             "footystats_season_id": derniere_saison["id"],
             "country": country,
             "nom_saison": nom_saison,
@@ -123,7 +125,7 @@ async def synchroniser_ligues(
                 ) VALUES (?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
-                    info["footystats_season_id"],
+                    info["league_footystats_id"],
                     nom,
                     info["country"],
                     1,
@@ -148,12 +150,19 @@ async def synchroniser_ligues(
             conn.execute(
                 """
                 UPDATE leagues SET
+                    footystats_id = ?,
+                    country = ?,
                     is_active = 1,
                     priority = ?,
                     updated_at = datetime('now')
                 WHERE name = ?
                 """,
-                (info["priorite"], nom),
+                (
+                    info["league_footystats_id"],
+                    info["country"],
+                    info["priorite"],
+                    nom,
+                ),
             )
 
             await _synchroniser_saison(
@@ -275,8 +284,8 @@ async def collecter_nouvelles_ligues(
     conn: sqlite3.Connection = None,
 ) -> dict:
     """
-    Après synchronisation, collecte les matchs
-    des ligues nouvellement ajoutées.
+    Après synchronisation, collecte ou rafraîchit
+    les saisons actives des ligues disponibles.
     """
     if conn is None:
         conn = obtenir_connexion()
@@ -284,30 +293,34 @@ async def collecter_nouvelles_ligues(
     from backend.data.collector import DataCollector
     collector = DataCollector(conn)
 
-    ligues_sans_matchs = conn.execute(
+    saisons_actives = conn.execute(
         """
         SELECT l.id, l.name, s.id as season_id,
-               s.footystats_id as fs_season_id
+               s.footystats_id as fs_season_id,
+               COUNT(m.id) as matches_count
         FROM leagues l
         JOIN seasons s ON s.league_id = l.id
+        LEFT JOIN matches m ON m.season_id = s.id
         WHERE l.is_active = 1
         AND s.status = 'active'
-        AND l.id NOT IN (
-            SELECT DISTINCT league_id FROM matches
-        )
+        GROUP BY l.id, l.name, s.id, s.footystats_id
+        ORDER BY l.priority ASC, l.name ASC
         """,
     ).fetchall()
 
     logger.info_ctx(
-        "Ligues sans matchs à collecter",
-        context={"count": len(ligues_sans_matchs)},
+        "Saisons actives à collecter",
+        context={"count": len(saisons_actives)},
     )
 
     resultats = {}
-    for ligue in ligues_sans_matchs:
+    for ligue in saisons_actives:
         logger.info_ctx(
-            "Collecte nouvelle ligue",
-            context={"ligue": ligue["name"]},
+            "Collecte saison active",
+            context={
+                "ligue": ligue["name"],
+                "matches_count": ligue["matches_count"],
+            },
         )
         res = await collector.collecter_matchs_saison(
             season_id=ligue["season_id"],

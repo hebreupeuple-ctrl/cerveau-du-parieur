@@ -4,7 +4,7 @@ import Card from '../components/shared/Card.jsx'
 import Badge from '../components/shared/Badge.jsx'
 import api from '../services/api.js'
 
-export default function Parametres() {
+export default function Parametres({ onLogout }) {
   const [kelly, setKelly] = useState('1/8')
   const [notifications, setNotifications] = useState(true)
   const [profile, setProfile] = useState(null)
@@ -66,6 +66,7 @@ export default function Parametres() {
     } catch (e) {
       const message =
         e?.error?.message ||
+        e?.detail ||
         e?.message ||
         "Impossible de lancer le backfill historique."
       setBackfillFeedback(message)
@@ -95,11 +96,25 @@ export default function Parametres() {
     } catch (e) {
       const message =
         e?.error?.message ||
+        e?.detail ||
         e?.message ||
         "Impossible de lancer l'entraînement."
       setRetrainFeedback(message)
     } finally {
       setIsRetraining(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout')
+    } catch (e) {
+      // Même si le backend ne répond pas, on ferme la session locale.
+    } finally {
+      localStorage.removeItem('token')
+      if (onLogout) {
+        onLogout()
+      }
     }
   }
 
@@ -286,98 +301,109 @@ export default function Parametres() {
           </div>
         ))}
 
-        <button
-          onClick={lancerEntrainement}
-          disabled={isRetraining || isBackfilling}
-          style={{
-            width: '100%',
-            marginTop: '16px',
-            padding: '12px',
-            borderRadius: '10px',
-            border: '1px solid #2563EB33',
-            backgroundColor: isRetraining ? '#1D4ED822' : '#2563EB22',
-            color: '#60A5FA',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: isRetraining ? 'wait' : 'pointer',
-            opacity: isRetraining ? 0.7 : 1,
-          }}
-        >
-          {isRetraining ? "Entraînement en cours..." : "Lancer l'entraînement maintenant"}
-        </button>
+        {profile?.is_admin ? (
+          <>
+            <button
+              onClick={lancerEntrainement}
+              disabled={isRetraining || isBackfilling}
+              style={{
+                width: '100%',
+                marginTop: '16px',
+                padding: '12px',
+                borderRadius: '10px',
+                border: '1px solid #2563EB33',
+                backgroundColor: isRetraining ? '#1D4ED822' : '#2563EB22',
+                color: '#60A5FA',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: isRetraining ? 'wait' : 'pointer',
+                opacity: isRetraining ? 0.7 : 1,
+              }}
+            >
+              {isRetraining ? "Entraînement en cours..." : "Lancer l'entraînement maintenant"}
+            </button>
 
-        {retrainFeedback && (
-          <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
-            {retrainFeedback}
+            {retrainFeedback && (
+              <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
+                {retrainFeedback}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ marginTop: '16px', fontSize: '12px', color: '#666666' }}>
+            Action réservée à l'administrateur.
           </div>
         )}
       </Card>
 
-      <Card style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <Sliders size={16} color="#666666" />
-          <span style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
-            Backfill historique
-          </span>
-        </div>
-
-        {[
-          { label: 'Matchs complets', value: systemStatus?.matches_complete ?? '—' },
-          { label: 'Features calculées', value: systemStatus?.features_historiques_calculees ?? '—' },
-          { label: 'Backlog restant', value: systemStatus?.features_historiques_manquantes ?? '—' },
-          {
-            label: 'Couverture',
-            value: systemStatus?.historical_backfill_coverage_pct !== undefined
-              ? `${systemStatus.historical_backfill_coverage_pct}%`
-              : '—'
-          },
-        ].map((item, i, arr) => (
-          <div
-            key={item.label}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              paddingBottom: i < arr.length - 1 ? '12px' : 0,
-              marginBottom: i < arr.length - 1 ? '12px' : 0,
-              borderBottom: i < arr.length - 1 ? '1px solid #2E2E2E' : 'none',
-            }}
-          >
-            <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
-            <span style={{ fontSize: '13px', fontWeight: '500', color: '#F5F5F5' }}>
-              {item.value}
+      {profile?.is_admin && (
+        <Card style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Sliders size={16} color="#666666" />
+            <span style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
+              Backfill historique
             </span>
           </div>
-        ))}
 
-        <button
-          onClick={lancerBackfill}
-          disabled={isBackfilling || isRetraining}
-          style={{
-            width: '100%',
-            marginTop: '16px',
-            padding: '12px',
-            borderRadius: '10px',
-            border: '1px solid #16A34A33',
-            backgroundColor: isBackfilling ? '#16653422' : '#16A34A22',
-            color: '#4ADE80',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: isBackfilling ? 'wait' : 'pointer',
-            opacity: isBackfilling ? 0.7 : 1,
-          }}
-        >
-          {isBackfilling ? 'Backfill en cours...' : 'Lancer un lot de backfill'}
-        </button>
+          {[
+            { label: 'Matchs complets', value: systemStatus?.matches_complete ?? '—' },
+            { label: 'Features calculées', value: systemStatus?.features_historiques_calculees ?? '—' },
+            { label: 'Backlog restant', value: systemStatus?.features_historiques_manquantes ?? '—' },
+            {
+              label: 'Couverture',
+              value: systemStatus?.historical_backfill_coverage_pct !== undefined
+                ? `${systemStatus.historical_backfill_coverage_pct}%`
+                : '—'
+            },
+          ].map((item, i, arr) => (
+            <div
+              key={item.label}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingBottom: i < arr.length - 1 ? '12px' : 0,
+                marginBottom: i < arr.length - 1 ? '12px' : 0,
+                borderBottom: i < arr.length - 1 ? '1px solid #2E2E2E' : 'none',
+              }}
+            >
+              <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
+              <span style={{ fontSize: '13px', fontWeight: '500', color: '#F5F5F5' }}>
+                {item.value}
+              </span>
+            </div>
+          ))}
 
-        {backfillFeedback && (
-          <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
-            {backfillFeedback}
-          </div>
-        )}
-      </Card>
+          <button
+            onClick={lancerBackfill}
+            disabled={isBackfilling || isRetraining}
+            style={{
+              width: '100%',
+              marginTop: '16px',
+              padding: '12px',
+              borderRadius: '10px',
+              border: '1px solid #16A34A33',
+              backgroundColor: isBackfilling ? '#16653422' : '#16A34A22',
+              color: '#4ADE80',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: isBackfilling ? 'wait' : 'pointer',
+              opacity: isBackfilling ? 0.7 : 1,
+            }}
+          >
+            {isBackfilling ? 'Backfill en cours...' : 'Lancer un lot de backfill'}
+          </button>
+
+          {backfillFeedback && (
+            <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
+              {backfillFeedback}
+            </div>
+          )}
+        </Card>
+      )}
 
       <button
+        onClick={handleLogout}
         style={{
           width: '100%',
           padding: '14px',
