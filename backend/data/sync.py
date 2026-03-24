@@ -8,6 +8,11 @@ import sqlite3
 from backend.core.logging import get_logger
 from backend.database.connection import obtenir_connexion
 from backend.data.footystats.client import FootyStatsClient
+from backend.data.footystats.parsers.leagues import (
+    extraire_annee_saison,
+    extraire_saison_principale,
+    formater_nom_saison,
+)
 
 logger = get_logger(__name__)
 
@@ -59,179 +64,173 @@ async def synchroniser_ligues(
     logger.info("Synchronisation des ligues depuis FootyStats...")
 
     try:
-        response = await client.get(
-            "league-list",
-            params={"chosen_leagues_only": "true"},
-        )
-    except Exception as e:
-        logger.error_ctx(
-            "Erreur synchronisation ligues",
-            context={"erreur": str(e)},
-        )
-        return {"erreur": str(e)}
-
-    data = response.get("data", [])
-    if not isinstance(data, list):
-        logger.warning("Format inattendu pour league-list")
-        return {"erreur": "Format inattendu"}
-
-    ligues_footystats = {}
-
-    for ligue_data in data:
-        nom = ligue_data.get("name", "")
-        country = ligue_data.get("country", "Unknown")
-        ligue_footystats_id = ligue_data.get("id")
-        saisons = ligue_data.get("season", [])
-
-        if not ligue_footystats_id or not isinstance(saisons, list) or not saisons:
-            continue
-
-        derniere_saison = max(
-            saisons,
-            key=lambda s: s.get("year", 0)
-        )
-
-        annee = str(derniere_saison.get("year", ""))
-        if len(annee) == 8:
-            nom_saison = f"{annee[:4]}/{annee[4:]}"
-        else:
-            nom_saison = annee
-
-        ligues_footystats[nom] = {
-            "league_footystats_id": ligue_footystats_id,
-            "footystats_season_id": derniere_saison["id"],
-            "country": country,
-            "nom_saison": nom_saison,
-            "annee": int(annee[:4]) if annee else 2025,
-            "priorite": LIGUES_PRIORITE.get(nom, 3),
-        }
-
-    ajoutees = 0
-    mises_a_jour = 0
-    desactivees = 0
-    saisons_modifiees = 0
-
-    for nom, info in ligues_footystats.items():
-        ligue_db = conn.execute(
-            "SELECT * FROM leagues WHERE name = ?",
-            (nom,),
-        ).fetchone()
-
-        if not ligue_db:
-            cursor = conn.execute(
-                """
-                INSERT INTO leagues (
-                    footystats_id, name, country,
-                    tier, group_type, is_active, priority
-                ) VALUES (?, ?, ?, ?, ?, 1, ?)
-                """,
-                (
-                    info["league_footystats_id"],
-                    nom,
-                    info["country"],
-                    1,
-                    _determiner_groupe(nom),
-                    info["priorite"],
-                ),
+        try:
+            response = await client.get(
+                "league-list",
+                params={"chosen_leagues_only": "true"},
             )
-            league_id = cursor.lastrowid
-
-            await _synchroniser_saison(
-                conn=conn,
-                league_id=league_id,
-                info=info,
+        except Exception as e:
+            logger.error_ctx(
+                "Erreur synchronisation ligues",
+                context={"erreur": str(e)},
             )
-            saisons_modifiees += 1
+            return {"erreur": str(e)}
 
-            ajoutees += 1
-            logger.info_ctx(
-                "Nouvelle ligue ajoutée",
-                context={"ligue": nom, "saison": info["nom_saison"]},
-            )
-        else:
-            nouveau_groupe = _determiner_groupe(nom)
-            ligue_changee = any([
-                ligue_db["footystats_id"] != info["league_footystats_id"],
-                ligue_db["country"] != info["country"],
-                ligue_db["priority"] != info["priorite"],
-                ligue_db["group_type"] != nouveau_groupe,
-                ligue_db["is_active"] != 1,
-            ])
+        data = response.get("data", [])
+        if not isinstance(data, list):
+            logger.warning("Format inattendu pour league-list")
+            return {"erreur": "Format inattendu"}
 
-            if ligue_changee:
-                conn.execute(
+        ligues_footystats = {}
+
+        for ligue_data in data:
+            nom = ligue_data.get("name", "")
+            country = ligue_data.get("country", "Unknown")
+            ligue_footystats_id = ligue_data.get("id")
+            derniere_saison = extraire_saison_principale(ligue_data)
+
+            if not ligue_footystats_id or not derniere_saison:
+                continue
+
+            nom_saison = formater_nom_saison(derniere_saison)
+            annee = extraire_annee_saison(derniere_saison)
+
+            ligues_footystats[nom] = {
+                "league_footystats_id": ligue_footystats_id,
+                "footystats_season_id": derniere_saison["id"],
+                "country": country,
+                "nom_saison": nom_saison,
+                "annee": annee,
+                "priorite": LIGUES_PRIORITE.get(nom, 3),
+            }
+
+        ajoutees = 0
+        mises_a_jour = 0
+        desactivees = 0
+        saisons_modifiees = 0
+
+        for nom, info in ligues_footystats.items():
+            ligue_db = conn.execute(
+                "SELECT * FROM leagues WHERE name = ?",
+                (nom,),
+            ).fetchone()
+
+            if not ligue_db:
+                cursor = conn.execute(
                     """
-                    UPDATE leagues SET
-                        footystats_id = ?,
-                        country = ?,
-                        group_type = ?,
-                        is_active = 1,
-                        priority = ?,
-                        updated_at = datetime('now')
-                    WHERE name = ?
+                    INSERT INTO leagues (
+                        footystats_id, name, country,
+                        tier, group_type, is_active, priority
+                    ) VALUES (?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
                         info["league_footystats_id"],
-                        info["country"],
-                        nouveau_groupe,
-                        info["priorite"],
                         nom,
+                        info["country"],
+                        1,
+                        _determiner_groupe(nom),
+                        info["priorite"],
                     ),
                 )
-                mises_a_jour += 1
+                league_id = cursor.lastrowid
 
-            saison_modifiee = await _synchroniser_saison(
-                conn=conn,
-                league_id=ligue_db["id"],
-                info=info,
-            )
-            if saison_modifiee:
+                await _synchroniser_saison(
+                    conn=conn,
+                    league_id=league_id,
+                    info=info,
+                )
                 saisons_modifiees += 1
 
-    ligues_actives_db = conn.execute(
-        "SELECT name FROM leagues WHERE is_active = 1"
-    ).fetchall()
+                ajoutees += 1
+                logger.info_ctx(
+                    "Nouvelle ligue ajoutée",
+                    context={"ligue": nom, "saison": info["nom_saison"]},
+                )
+            else:
+                nouveau_groupe = _determiner_groupe(nom)
+                ligue_changee = any([
+                    ligue_db["footystats_id"] != info["league_footystats_id"],
+                    ligue_db["country"] != info["country"],
+                    ligue_db["priority"] != info["priorite"],
+                    ligue_db["group_type"] != nouveau_groupe,
+                    ligue_db["is_active"] != 1,
+                ])
 
-    noms_actifs_db = {row["name"] for row in ligues_actives_db}
-    noms_footystats = set(ligues_footystats.keys())
+                if ligue_changee:
+                    conn.execute(
+                        """
+                        UPDATE leagues SET
+                            footystats_id = ?,
+                            country = ?,
+                            group_type = ?,
+                            is_active = 1,
+                            priority = ?,
+                            updated_at = datetime('now')
+                        WHERE name = ?
+                        """,
+                        (
+                            info["league_footystats_id"],
+                            info["country"],
+                            nouveau_groupe,
+                            info["priorite"],
+                            nom,
+                        ),
+                    )
+                    mises_a_jour += 1
 
-    for nom_a_desactiver in noms_actifs_db - noms_footystats:
-        conn.execute(
-            "UPDATE leagues SET is_active = 0 WHERE name = ?",
-            (nom_a_desactiver,),
+                saison_modifiee = await _synchroniser_saison(
+                    conn=conn,
+                    league_id=ligue_db["id"],
+                    info=info,
+                )
+                if saison_modifiee:
+                    saisons_modifiees += 1
+
+        ligues_actives_db = conn.execute(
+            "SELECT name FROM leagues WHERE is_active = 1"
+        ).fetchall()
+
+        noms_actifs_db = {row["name"] for row in ligues_actives_db}
+        noms_footystats = set(ligues_footystats.keys())
+
+        for nom_a_desactiver in noms_actifs_db - noms_footystats:
+            conn.execute(
+                "UPDATE leagues SET is_active = 0 WHERE name = ?",
+                (nom_a_desactiver,),
+            )
+            desactivees += 1
+            logger.info_ctx(
+                "Ligue désactivée",
+                context={"ligue": nom_a_desactiver},
+            )
+
+        conn.commit()
+
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM leagues WHERE is_active = 1"
         )
-        desactivees += 1
+        total_actives = cursor.fetchone()[0]
+
+        resultat = {
+            "total_footystats": len(ligues_footystats),
+            "ajoutees": ajoutees,
+            "mises_a_jour": mises_a_jour,
+            "desactivees": desactivees,
+            "saisons_modifiees": saisons_modifiees,
+            "total_actives_db": total_actives,
+            "catalogue_changed": bool(
+                ajoutees or mises_a_jour or desactivees or saisons_modifiees
+            ),
+        }
+
         logger.info_ctx(
-            "Ligue désactivée",
-            context={"ligue": nom_a_desactiver},
+            "Synchronisation ligues terminée",
+            context=resultat,
         )
 
-    conn.commit()
-
-    cursor = conn.execute(
-        "SELECT COUNT(*) FROM leagues WHERE is_active = 1"
-    )
-    total_actives = cursor.fetchone()[0]
-
-    resultat = {
-        "total_footystats": len(ligues_footystats),
-        "ajoutees": ajoutees,
-        "mises_a_jour": mises_a_jour,
-        "desactivees": desactivees,
-        "saisons_modifiees": saisons_modifiees,
-        "total_actives_db": total_actives,
-        "catalogue_changed": bool(
-            ajoutees or mises_a_jour or desactivees or saisons_modifiees
-        ),
-    }
-
-    logger.info_ctx(
-        "Synchronisation ligues terminée",
-        context=resultat,
-    )
-
-    await client.fermer()
-    return resultat
+        return resultat
+    finally:
+        await client.fermer()
 
 
 async def _synchroniser_saison(

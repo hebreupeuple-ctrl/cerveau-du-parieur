@@ -8,6 +8,11 @@ from typing import Optional
 from backend.core.logging import get_logger
 from backend.data.footystats.client import FootyStatsClient
 from backend.data.footystats.endpoints import FootyStatsEndpoints
+from backend.data.footystats.parsers.leagues import (
+    extraire_annee_saison,
+    extraire_saison_principale,
+    formater_nom_saison,
+)
 from backend.data.footystats.parsers.matches import parser_match
 from backend.database.connection import obtenir_connexion
 from backend.database.repositories.league_repository import LeagueRepository
@@ -81,16 +86,10 @@ class DataCollector:
                 continue
 
             config = LIGUES_PRINCIPALES[nom]
-            saisons = ligue_data.get("season", [])
+            derniere_saison = extraire_saison_principale(ligue_data)
 
-            if not isinstance(saisons, list) or not saisons:
+            if not derniere_saison:
                 continue
-
-            # Prendre la saison la plus récente
-            derniere_saison = max(
-                saisons,
-                key=lambda s: s.get("year", 0)
-            )
 
             # Sauvegarder la ligue
             league_id = self.league_repo.sauvegarder({
@@ -103,18 +102,15 @@ class DataCollector:
             })
 
             # Construire l'année lisible
-            annee = str(derniere_saison.get("year", 2025))
-            if len(annee) == 8:
-                nom_saison = f"{annee[:4]}/{annee[4:]}"
-            else:
-                nom_saison = annee
+            annee = extraire_annee_saison(derniere_saison)
+            nom_saison = formater_nom_saison(derniere_saison)
 
             # Sauvegarder la saison
             season_db_id = await self._sauvegarder_saison(
                 footystats_id=derniere_saison["id"],
                 league_id=league_id,
                 nom=nom_saison,
-                annee=int(annee[:4]),
+                annee=annee,
                 country=derniere_saison.get("country", config["country"]),
             )
 
