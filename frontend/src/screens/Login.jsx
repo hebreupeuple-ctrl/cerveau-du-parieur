@@ -2,27 +2,75 @@ import React, { useState } from 'react'
 import api from '../services/api.js'
 
 export default function Login({ onLogin }) {
-  const [email, setEmail] = useState('vagharlegrand@gmail.com')
+  const [mode, setMode] = useState('login')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const handleLogin = async () => {
+  const devicePayload = {
+    device_fingerprint: 'pwa-device-' + navigator.userAgent.slice(0, 20),
+    device_name: navigator.platform || 'Mon appareil',
+    platform: /iPhone|iPad/.test(navigator.userAgent) ? 'iOS' : 'web',
+  }
+
+  const resetErrors = () => {
+    setError(null)
+  }
+
+  const basculerMode = (nextMode) => {
+    setMode(nextMode)
+    setPassword('')
+    setConfirmPassword('')
+    setError(null)
+  }
+
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError('Renseigne ton email et ton mot de passe')
+      return
+    }
+
+    if (mode === 'register') {
+      if (password.length < 8) {
+        setError('Le mot de passe doit contenir au moins 8 caractères')
+        return
+      }
+
+      if (password !== confirmPassword) {
+        setError('Les mots de passe ne correspondent pas')
+        return
+      }
+    }
+
     setLoading(true)
     setError(null)
+
     try {
+      if (mode === 'register') {
+        await api.post('/auth/register', {
+          email: email.trim(),
+          password,
+        })
+      }
+
       const res = await api.post('/auth/login', {
-        email,
+        email: email.trim(),
         password,
-        device_fingerprint: 'pwa-device-' + navigator.userAgent.slice(0, 20),
-        device_name: navigator.platform || 'Mon appareil',
-        platform: /iPhone|iPad/.test(navigator.userAgent) ? 'iOS' : 'web',
+        ...devicePayload,
       })
       const token = res.data.access_token
       localStorage.setItem('token', token)
       onLogin(token)
     } catch (e) {
-      setError('Email ou mot de passe incorrect')
+      const message = e?.detail?.message || e?.error?.message
+
+      if (mode === 'register') {
+        setError(message || 'Impossible de créer le compte')
+      } else {
+        setError(message || 'Email ou mot de passe incorrect')
+      }
     } finally {
       setLoading(false)
     }
@@ -55,11 +103,53 @@ export default function Login({ onLogin }) {
             Cerveau du Parieur
           </h1>
           <p style={{ fontSize: '13px', color: '#666666' }}>
-            Système de pronostics intelligent
+            {mode === 'login'
+              ? 'Connecte-toi pour voir tes pronostics'
+              : 'Crée ton compte pour démarrer'}
           </p>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '8px',
+            marginBottom: '4px',
+          }}>
+            <button
+              onClick={() => basculerMode('login')}
+              disabled={loading}
+              style={{
+                padding: '11px',
+                borderRadius: '10px',
+                border: '1px solid ' + (mode === 'login' ? '#2563EB' : '#333333'),
+                backgroundColor: mode === 'login' ? '#111C34' : '#1A1A1A',
+                color: mode === 'login' ? '#F5F5F5' : '#8A8A8A',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Se connecter
+            </button>
+            <button
+              onClick={() => basculerMode('register')}
+              disabled={loading}
+              style={{
+                padding: '11px',
+                borderRadius: '10px',
+                border: '1px solid ' + (mode === 'register' ? '#2563EB' : '#333333'),
+                backgroundColor: mode === 'register' ? '#111C34' : '#1A1A1A',
+                color: mode === 'register' ? '#F5F5F5' : '#8A8A8A',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Créer un compte
+            </button>
+          </div>
+
           <div>
             <label style={{ fontSize: '12px', color: '#666666', display: 'block', marginBottom: '6px' }}>
               Email
@@ -67,7 +157,11 @@ export default function Login({ onLogin }) {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                resetErrors()
+              }}
+              placeholder="votre@email.com"
               style={{
                 width: '100%',
                 backgroundColor: '#1A1A1A',
@@ -89,9 +183,12 @@ export default function Login({ onLogin }) {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-              placeholder="Cerveau2026!"
+              onChange={(e) => {
+                setPassword(e.target.value)
+                resetErrors()
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              placeholder={mode === 'register' ? 'Au moins 8 caractères' : 'Votre mot de passe'}
               style={{
                 width: '100%',
                 backgroundColor: '#1A1A1A',
@@ -106,6 +203,41 @@ export default function Login({ onLogin }) {
             />
           </div>
 
+          {mode === 'register' && (
+            <div>
+              <label style={{ fontSize: '12px', color: '#666666', display: 'block', marginBottom: '6px' }}>
+                Confirmer le mot de passe
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value)
+                  resetErrors()
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                placeholder="Répète le mot de passe"
+                style={{
+                  width: '100%',
+                  backgroundColor: '#1A1A1A',
+                  border: '1px solid #333333',
+                  borderRadius: '10px',
+                  padding: '13px 14px',
+                  color: '#F5F5F5',
+                  fontSize: '15px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <p style={{ fontSize: '12px', color: '#666666', lineHeight: '1.5', margin: 0 }}>
+              Le compte est créé puis connecté automatiquement avec la bankroll par défaut.
+            </p>
+          )}
+
           {error && (
             <p style={{ fontSize: '13px', color: '#DC2626', textAlign: 'center' }}>
               {error}
@@ -113,7 +245,7 @@ export default function Login({ onLogin }) {
           )}
 
           <button
-            onClick={handleLogin}
+            onClick={handleSubmit}
             disabled={loading}
             style={{
               width: '100%',
@@ -128,7 +260,9 @@ export default function Login({ onLogin }) {
               marginTop: '8px',
             }}
           >
-            {loading ? 'Connexion...' : 'Se connecter'}
+            {loading
+              ? (mode === 'login' ? 'Connexion...' : 'Création...')
+              : (mode === 'login' ? 'Se connecter' : 'Créer mon compte')}
           </button>
         </div>
       </div>
