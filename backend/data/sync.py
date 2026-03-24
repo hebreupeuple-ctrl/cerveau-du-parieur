@@ -10,6 +10,8 @@ from backend.database.connection import obtenir_connexion
 from backend.data.footystats.client import FootyStatsClient
 from backend.data.footystats.parsers.leagues import (
     extraire_annee_saison,
+    extraire_id_ligue,
+    extraire_nom_ligue,
     extraire_saison_principale,
     formater_nom_saison,
 )
@@ -84,9 +86,9 @@ async def synchroniser_ligues(
         ligues_footystats = {}
 
         for ligue_data in data:
-            nom = ligue_data.get("name", "")
+            nom = extraire_nom_ligue(ligue_data)
             country = ligue_data.get("country", "Unknown")
-            ligue_footystats_id = ligue_data.get("id")
+            ligue_footystats_id = extraire_id_ligue(ligue_data)
             derniere_saison = extraire_saison_principale(ligue_data)
 
             if not ligue_footystats_id or not derniere_saison:

@@ -2,6 +2,7 @@
 Parser pour les données de ligues FootyStats.
 """
 
+import hashlib
 from datetime import datetime
 from typing import Any, Optional
 from backend.core.logging import get_logger
@@ -43,6 +44,65 @@ def extraire_saisons(data: dict) -> list[dict]:
         saisons.append(saison)
 
     return saisons
+
+
+def extraire_id_ligue(data: dict) -> Optional[int]:
+    """
+    Extrait un identifiant de ligue/compétition.
+    Si FootyStats ne fournit pas d'ID stable au niveau ligue,
+    génère un ID synthétique déterministe à partir du pays et du nom.
+    """
+    for cle in (
+        "id",
+        "league_id",
+        "competition_id",
+        "leagueID",
+        "competitionID",
+        "leagueId",
+        "competitionId",
+        "footystats_id",
+    ):
+        valeur = _coerce_int(data.get(cle))
+        if valeur:
+            return valeur
+
+    for cle in ("league", "competition", "tournament"):
+        valeur = data.get(cle)
+        if isinstance(valeur, dict):
+            identifiant = extraire_id_ligue(valeur)
+            if identifiant:
+                return identifiant
+
+    nom = extraire_nom_ligue(data)
+    if not nom:
+        return None
+
+    return _generer_id_ligue_synthetique(
+        country=data.get("country", "Unknown"),
+        name=nom,
+    )
+
+
+def extraire_nom_ligue(data: dict) -> str:
+    """
+    Normalise le nom de ligue pour rester stable même si l'API
+    passe de `name` à `league_name` ou change légèrement la forme.
+    """
+    country = _nettoyer_texte(data.get("country")) or "Unknown"
+
+    nom = (
+        _nettoyer_texte(data.get("name"))
+        or _nettoyer_texte(data.get("league_name"))
+        or _nettoyer_texte(data.get("competition_name"))
+        or _nettoyer_texte(data.get("league"))
+    )
+
+    if not nom:
+        return ""
+
+    if country != "Unknown" and country.lower() not in nom.lower():
+        return f"{country} {nom}"
+    return nom
 
 
 def extraire_saison_principale(data: dict) -> Optional[dict]:
@@ -98,8 +158,8 @@ def parser_ligue(data: dict) -> Optional[dict]:
     Parse une ligue depuis la réponse FootyStats.
     """
     try:
-        league_id = data.get("id")
-        name = data.get("name")
+        league_id = extraire_id_ligue(data)
+        name = extraire_nom_ligue(data)
 
         if not league_id or not name:
             return None
@@ -201,3 +261,24 @@ def _normaliser_annee(valeur: Any) -> Optional[int]:
     if len(digits) >= 4:
         return int(digits[:4])
     return None
+
+
+def _nettoyer_texte(valeur: Any) -> str:
+    if not isinstance(valeur, str):
+        return ""
+    return " ".join(valeur.split()).strip()
+
+
+def _coerce_int(valeur: Any) -> Optional[int]:
+    if valeur in (None, ""):
+        return None
+    try:
+        return int(valeur)
+    except (TypeError, ValueError):
+        return None
+
+
+def _generer_id_ligue_synthetique(country: str, name: str) -> int:
+    brut = f"{country.strip().lower()}::{name.strip().lower()}".encode("utf-8")
+    digest = hashlib.blake2b(brut, digest_size=8).digest()
+    return int.from_bytes(digest, "big") & 0x7FFFFFFFFFFFFFFF

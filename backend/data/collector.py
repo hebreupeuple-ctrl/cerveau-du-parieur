@@ -10,6 +10,8 @@ from backend.data.footystats.client import FootyStatsClient
 from backend.data.footystats.endpoints import FootyStatsEndpoints
 from backend.data.footystats.parsers.leagues import (
     extraire_annee_saison,
+    extraire_id_ligue,
+    extraire_nom_ligue,
     extraire_saison_principale,
     formater_nom_saison,
 )
@@ -79,8 +81,8 @@ class DataCollector:
         saisons_actives = []
 
         for ligue_data in data:
-            nom = ligue_data.get("name", "")
-            league_footystats_id = ligue_data.get("id")
+            nom = extraire_nom_ligue(ligue_data)
+            league_footystats_id = extraire_id_ligue(ligue_data)
 
             if nom not in LIGUES_PRINCIPALES or not league_footystats_id:
                 continue

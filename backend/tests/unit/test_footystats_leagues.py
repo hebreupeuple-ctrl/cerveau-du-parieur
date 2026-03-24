@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 from backend.core.config import settings
 from backend.data.footystats.parsers.leagues import (
+    extraire_id_ligue,
+    extraire_nom_ligue,
     extraire_saison_principale,
     parser_ligue,
 )
@@ -44,6 +46,20 @@ class FootyStatsLeagueParsingTests(unittest.TestCase):
         self.assertEqual(ligue["season_name"], "2025/2026")
         self.assertEqual(ligue["season_year"], 2025)
 
+    def test_parser_ligue_genere_un_id_stable_si_ligue_sans_id(self):
+        payload = {
+            "name": "Bundesliga",
+            "country": "Germany",
+            "season": [{"id": 14968, "year": 20252026}],
+        }
+
+        ligue = parser_ligue(payload)
+
+        self.assertIsNotNone(ligue)
+        self.assertIsInstance(ligue["footystats_id"], int)
+        self.assertGreater(ligue["footystats_id"], 0)
+        self.assertEqual(ligue["name"], "Germany Bundesliga")
+
     def test_parser_ligue_supporte_enveloppe_data(self):
         saison = extraire_saison_principale({
             "id": 30,
@@ -61,6 +77,21 @@ class FootyStatsLeagueParsingTests(unittest.TestCase):
         self.assertEqual(saison["id"], 302)
         self.assertEqual(saison["name"], "2025/2026")
         self.assertEqual(saison["year"], 2025)
+
+    def test_extraire_id_ligue_prend_competition_id_quand_disponible(self):
+        league_id = extraire_id_ligue({
+            "competition_id": 777,
+            "league_name": "Bundesliga",
+            "country": "Germany",
+        })
+        self.assertEqual(league_id, 777)
+
+    def test_extraire_nom_ligue_prefixe_le_pays_si_necessaire(self):
+        nom = extraire_nom_ligue({
+            "league_name": "Bundesliga",
+            "country": "Germany",
+        })
+        self.assertEqual(nom, "Germany Bundesliga")
 
 
 class SyncLeagueParsingTests(unittest.TestCase):
@@ -106,3 +137,32 @@ class SyncLeagueParsingTests(unittest.TestCase):
         self.assertTrue(resultat["catalogue_changed"])
         self.assertEqual(resultat["total_actives_db"], 1)
 
+    def test_synchroniser_ligues_supporte_ligue_sans_id_top_level(self):
+        payload = {
+            "data": [
+                {
+                    "name": "Bundesliga",
+                    "country": "Germany",
+                    "season": [{"id": 14968, "year": 20252026}],
+                }
+            ]
+        }
+
+        with patch(
+            "backend.data.sync.FootyStatsClient.get",
+            new=AsyncMock(return_value=payload),
+        ):
+            conn = obtenir_connexion()
+            resultat = asyncio.run(synchroniser_ligues(conn))
+
+        row = obtenir_connexion().execute(
+            "SELECT footystats_id, name, is_active FROM leagues WHERE name = ?",
+            ("Germany Bundesliga",),
+        ).fetchone()
+
+        self.assertEqual(resultat["total_footystats"], 1)
+        self.assertEqual(resultat["ajoutees"], 1)
+        self.assertTrue(resultat["catalogue_changed"])
+        self.assertIsNotNone(row)
+        self.assertGreater(row["footystats_id"], 0)
+        self.assertEqual(row["is_active"], 1)
