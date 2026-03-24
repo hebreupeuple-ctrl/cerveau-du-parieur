@@ -54,15 +54,18 @@ def seuil_ev_adaptatif(
     seuil_base: float = SEUIL_EV_MINIMUM,
 ) -> float:
     """
-    Ajuste le seuil EV en fonction de la confiance du modèle.
-    Plus la proba est haute, plus on tolère un EV légèrement plus faible
-    (signal fort = on accepte une marge de valeur réduite).
-    La réduction maximale est de 20 % du seuil de base.
+    Seuil EV plus strict quand la confiance est faible.
+    Logique : une faible confiance exige une marge de sécurité plus grande.
+    Une forte confiance (>= 70 %) valide le signal → seuil standard.
+
+    < 65 % de confiance → +40 % (ex. 7 % au lieu de 5 %)
+    65-70 %             → +20 % (ex. 6 % au lieu de 5 %)
+    >= 70 %             → seuil standard
     """
-    if probabilite_modele >= 0.80:
-        return seuil_base * 0.80
-    if probabilite_modele >= 0.70:
-        return seuil_base * 0.90
+    if probabilite_modele < 0.65:
+        return seuil_base * 1.40
+    if probabilite_modele < 0.70:
+        return seuil_base * 1.20
     return seuil_base
 
 

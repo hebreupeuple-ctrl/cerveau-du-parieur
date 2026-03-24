@@ -5,6 +5,7 @@ Taches d'automatisation du systeme.
 import asyncio
 import sqlite3
 import time
+from datetime import datetime, timezone
 from typing import Optional, Sequence
 
 from backend.core.config import settings
@@ -133,6 +134,9 @@ async def rafraichir_matchs_cotes_et_pronostics(
     finally:
         conn.close()
 
+    # Résolution automatique des pronostics placed sur matchs terminés
+    resolution = await auto_resoudre_pronostics_termines()
+
     features = await asyncio.to_thread(
         calculer_features_matchs_a_venir,
         heures,
@@ -146,6 +150,7 @@ async def rafraichir_matchs_cotes_et_pronostics(
     return {
         "matchs_du_jour": matchs_du_jour,
         "cotes": cotes,
+        "resolution": resolution,
         "features": features,
         "pronostics": pronostics,
     }
@@ -484,3 +489,255 @@ def _backfill_features_historiques_sync(
         }
     finally:
         conn.close()
+
+from backend.core.logging import get_logger as _get_logger
+_logger = _get_logger(__name__)
+
+
+def _determiner_resultat_marche(
+    marche: str,
+    home_goals: int,
+    away_goals: int,
+    total_goals: int,
+    home_goals_ht,
+    away_goals_ht,
+) -> str:
+    """
+    Détermine le résultat d'un marché donné à partir des buts du match.
+    Retourne 'won', 'lost' ou 'void'.
+    """
+    hg = home_goals or 0
+    ag = away_goals or 0
+    tg = total_goals if total_goals is not None else (hg + ag)
+
+    if marche == "over25":
+        return "won" if tg > 2 else "lost"
+    elif marche == "over15":
+        return "won" if tg > 1 else "lost"
+    elif marche == "over35":
+        return "won" if tg > 3 else "lost"
+    elif marche == "btts":
+        return "won" if (hg > 0 and ag > 0) else "lost"
+    elif marche == "over15_ht":
+        if home_goals_ht is None or away_goals_ht is None:
+            return "void"
+        return "won" if (home_goals_ht + away_goals_ht) > 1 else "lost"
+    elif marche == "1x2_home":
+        return "won" if hg > ag else "lost"
+    elif marche == "1x2_draw":
+        return "won" if hg == ag else "lost"
+    elif marche == "1x2_away":
+        return "won" if ag > hg else "lost"
+    # Marché inconnu → void
+    return "void"
+
+
+async def auto_resoudre_pronostics_termines() -> dict:
+    """
+    Résout automatiquement les pronostics dont le match est terminé :
+    - 'placed' → résolution avec impact bankroll (won/lost/void)
+    - 'pending' → marqué 'ignored' (jamais placé, match déjà joué)
+    """
+    return await asyncio.to_thread(_auto_resoudre_pronostics_sync)
+
+
+def _auto_resoudre_pronostics_sync() -> dict:
+    conn = creer_connexion()
+    try:
+        maintenant = int(time.time())
+        resolved = 0
+        ignored = 0
+        erreurs = 0
+
+        # ── 1. Pronostics PLACED dont le match est terminé ──────────────
+        placed_rows = conn.execute(
+            """
+            SELECT
+                p.id, p.user_id, p.market, p.actual_stake, p.actual_odds,
+                m.home_goals, m.away_goals, m.total_goals,
+                m.home_goals_ht, m.away_goals_ht
+            FROM pronostics p
+            JOIN matches m ON p.match_id = m.id
+            WHERE p.status = 'placed'
+            AND m.status = 'complete'
+            AND m.home_goals IS NOT NULL
+            """
+        ).fetchall()
+
+        for p in placed_rows:
+            try:
+                resultat = _determiner_resultat_marche(
+                    marche=p["market"],
+                    home_goals=p["home_goals"],
+                    away_goals=p["away_goals"],
+                    total_goals=p["total_goals"],
+                    home_goals_ht=p["home_goals_ht"],
+                    away_goals_ht=p["away_goals_ht"],
+                )
+
+                stake = p["actual_stake"] or 0.0
+                odds = p["actual_odds"] or 1.0
+
+                if resultat == "won":
+                    profit = round(stake * (odds - 1.0), 2)
+                    retour = round(stake + profit, 2)
+                elif resultat == "lost":
+                    profit = -stake
+                    retour = 0.0
+                else:  # void
+                    profit = 0.0
+                    retour = stake
+
+                # Lire bankroll actuelle
+                user_row = conn.execute(
+                    "SELECT current_bankroll FROM users WHERE id = ?",
+                    (p["user_id"],),
+                ).fetchone()
+                if not user_row:
+                    continue
+
+                bankroll_avant = user_row["current_bankroll"]
+                nouvelle_bankroll = round(bankroll_avant + retour, 2)
+
+                conn.execute(
+                    """
+                    UPDATE pronostics SET
+                        status = ?,
+                        actual_profit = ?,
+                        resolved_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (resultat, profit, p["id"]),
+                )
+                conn.execute(
+                    """
+                    UPDATE users SET
+                        current_bankroll = ?,
+                        bankroll_updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (nouvelle_bankroll, p["user_id"]),
+                )
+                transaction_type = (
+                    "bet_won" if resultat == "won"
+                    else "bet_void" if resultat == "void"
+                    else "bet_lost"
+                )
+                conn.execute(
+                    """
+                    INSERT INTO bankroll_transactions (
+                        user_id, pronostic_id, transaction_type,
+                        amount, balance_before, balance_after, reference_note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        p["user_id"],
+                        p["id"],
+                        transaction_type,
+                        retour,
+                        bankroll_avant,
+                        nouvelle_bankroll,
+                        f"Auto-résolution {resultat} — {p['market']}",
+                    ),
+                )
+                resolved += 1
+
+            except Exception as e:
+                erreurs += 1
+                _logger.error_ctx(
+                    "Erreur auto-résolution pronostic placé",
+                    context={"pronostic_id": p["id"], "erreur": str(e)},
+                )
+
+        # ── 2. Pronostics PENDING dont le match est déjà terminé ───────
+        conn.execute(
+            """
+            UPDATE pronostics
+            SET status = 'ignored',
+                ignored_at = datetime('now'),
+                ignore_reason = 'match_termine_sans_placement'
+            WHERE status = 'pending'
+            AND match_id IN (
+                SELECT id FROM matches
+                WHERE status = 'complete'
+                AND match_timestamp < ?
+            )
+            """,
+            (maintenant,),
+        )
+        ignored = conn.total_changes - resolved - erreurs
+
+        conn.commit()
+
+        _logger.info_ctx(
+            "Auto-résolution pronostics terminée",
+            context={
+                "resolved": resolved,
+                "ignored": ignored,
+                "erreurs": erreurs,
+            },
+        )
+
+        return {
+            "resolved": resolved,
+            "ignored": ignored,
+            "erreurs": erreurs,
+        }
+    finally:
+        conn.close()
+
+
+async def pipeline_complet_toutes_ligues(
+    user_ids: Optional[Sequence[int]] = None,
+    max_pronostics: int = 10,
+    max_backfill_batches: int = 20,
+) -> dict:
+    """
+    Pipeline complet :
+    1. Synchronise TOUTES les ligues disponibles (force catalogue_changed)
+    2. Auto-résout les pronostics des matchs terminés
+    3. Backfill des features historiques (plusieurs lots)
+    4. Réentraîne le modèle
+    5. Rafraîchit les matchs, cotes et pronostics
+    """
+    # Étape 1 : sync catalogue
+    sync = await synchroniser_catalogue()
+
+    # Étape 2 : auto-résolution pronostics terminés
+    resolution = await auto_resoudre_pronostics_termines()
+
+    # Étape 3 : backfill features historiques (force plusieurs lots)
+    backfill_processed = 0
+    backfill_ok = 0
+    backfill_fail = 0
+
+    for _ in range(max_backfill_batches):
+        res = await backfill_features_historiques()
+        backfill_processed += res.get("processed", 0)
+        backfill_ok += res.get("ok", 0)
+        backfill_fail += res.get("fail", 0)
+        remaining = res.get("after", {}).get("features_historiques_manquantes", 0)
+        if res.get("processed", 0) == 0 or remaining == 0:
+            break
+
+    # Étape 4 : réentraînement modèle
+    retrain = await entrainer_modele()
+
+    # Étape 5 : rafraîchissement matchs + cotes + pronostics
+    refresh = await rafraichir_matchs_cotes_et_pronostics(
+        heures=72,
+        user_ids=user_ids,
+        max_pronostics=max_pronostics,
+    )
+
+    return {
+        "sync": sync,
+        "resolution": resolution,
+        "backfill": {
+            "processed": backfill_processed,
+            "ok": backfill_ok,
+            "fail": backfill_fail,
+        },
+        "retrain": retrain,
+        "refresh": refresh,
+    }

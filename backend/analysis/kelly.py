@@ -162,11 +162,12 @@ def calculer_kelly_complet(
 
     ev = (probabilite * cote) - 1.0
 
+    from backend.core.config import settings
     return {
         "kelly_brut": kelly_brut,
         "fraction": fraction,
         "kelly_avec_fraction": kelly_avec_fraction,
         "mise_recommandee": mise,
         "ev": round(ev, 4),
-        "a_valeur": ev >= 0.03,
+        "a_valeur": ev >= settings.MIN_EV_THRESHOLD,
     }

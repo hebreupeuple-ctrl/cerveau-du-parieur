@@ -295,6 +295,104 @@ async def manual_feature_backfill(
     )
 
 
+@router.post("/auto-resolve-pronostics")
+async def auto_resolve_pronostics(
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """
+    Résout automatiquement tous les pronostics placés dont le match est terminé
+    et ignore les pronostics pending non placés sur matchs joués.
+    """
+    from backend.scheduler.tasks.automation import auto_resoudre_pronostics_termines
+
+    logger.info_ctx(
+        "Auto-résolution pronostics demandée",
+        context={"user_id": current_user["id"]},
+    )
+
+    resultat = await auto_resoudre_pronostics_termines()
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": resultat,
+            "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+        }
+    )
+
+
+@router.post("/pipeline-complet")
+async def pipeline_complet(
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """
+    Pipeline complet toutes ligues :
+    1. Sync catalogue ligues
+    2. Auto-résolution pronostics matchs terminés
+    3. Backfill features historiques (jusqu'à 20 lots)
+    4. Réentraînement modèle
+    5. Rafraîchissement matchs + cotes + pronostics (72h)
+    """
+    from backend.scheduler.tasks.automation import pipeline_complet_toutes_ligues
+
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
+                },
+                "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+            },
+        )
+
+    logger.info_ctx(
+        "Pipeline complet toutes ligues demandé",
+        context={"user_id": current_user["id"]},
+    )
+
+    async with manual_system_lock:
+        try:
+            resultat = await pipeline_complet_toutes_ligues(
+                user_ids=None,   # tous les utilisateurs actifs
+                max_pronostics=10,
+                max_backfill_batches=20,
+            )
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
+
+    logger.info_ctx(
+        "Pipeline complet terminé",
+        context={
+            "user_id": current_user["id"],
+            "resolved": resultat.get("resolution", {}).get("resolved", 0),
+            "backfill_processed": resultat.get("backfill", {}).get("processed", 0),
+            "pronostics_inserted": resultat.get("refresh", {}).get(
+                "pronostics", {}
+            ).get("inserted", 0),
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": resultat,
+            "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+        }
+    )
+
+
 @router.post("/manual-retrain")
 async def manual_retrain(
     current_user: dict = Depends(get_current_admin_user),

@@ -503,7 +503,7 @@ class ModelTrainer:
                 nouveau_brier_btts
                 > actif_precedent["brier_score_btts"] * seuil_degradation
             )
-            if degradation_over25 and degradation_btts:
+            if degradation_over25 or degradation_btts:
                 activer = False
                 logger.warning_ctx(
                     "Nouveau modele plus faible que le precedent — NON activé",

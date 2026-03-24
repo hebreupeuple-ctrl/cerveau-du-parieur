@@ -79,6 +79,17 @@ class MetaModel:
         if not actifs:
             return None
 
+        def _nettoyer(arr):
+            """Remplace NaN par 0.5 (probabilité neutre) — évite propagation silencieuse."""
+            if arr is None:
+                return None
+            cleaned = np.where(np.isnan(arr), 0.5, arr)
+            return np.clip(cleaned, 0.0, 1.0)
+
+        pred_xgb = _nettoyer(pred_xgb)
+        pred_rf = _nettoyer(pred_rf)
+        pred_lr = _nettoyer(pred_lr)
+
         # Stacking niveau 2 si disponible et toutes les prédictions présentes
         if (
             self._stacking_model is not None
@@ -88,7 +99,10 @@ class MetaModel:
         ):
             try:
                 X_meta = np.column_stack([pred_xgb, pred_rf, pred_lr])
-                return self._stacking_model.predict_proba(X_meta)[:, 1]
+                result = self._stacking_model.predict_proba(X_meta)[:, 1]
+                # Guard final contre NaN du stacking
+                result = np.where(np.isnan(result), 0.5, result)
+                return np.clip(result, 0.0, 1.0)
             except Exception:
                 pass  # Repli sur moyenne pondérée
 
@@ -108,7 +122,7 @@ class MetaModel:
         resultat = np.zeros_like(predictions[0])
         for pred, poids in zip(predictions, poids_normalises):
             resultat += pred * poids
-        return resultat
+        return np.clip(resultat, 0.0, 1.0)
 
     def calibrer(
         self,
