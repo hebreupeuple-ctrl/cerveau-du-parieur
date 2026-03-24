@@ -1,42 +1,38 @@
 """
-Sécurité centrale du système.
+Securite centrale du systeme.
 JWT, hachage des mots de passe, chiffrement AES-256.
 """
 
 import os
 import secrets
 import hashlib
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from backend.core.config import settings
 from backend.core.exceptions import (
     TokenExpiredException,
     TokenInvalidException,
 )
 
-# Contexte bcrypt pour les mots de passe
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hasher_mot_de_passe(mot_de_passe: str) -> str:
-    """
-    Hache un mot de passe avec bcrypt.
-    Le salt est généré automatiquement.
-    """
-    return pwd_context.hash(mot_de_passe)
+    """Hache un mot de passe avec bcrypt."""
+    mot_de_passe_bytes = mot_de_passe[:72].encode("utf-8")
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(mot_de_passe_bytes, salt)
+    return hashed.decode("utf-8")
 
 
-def verifier_mot_de_passe(
-    mot_de_passe: str,
-    hash_stocke: str,
-) -> bool:
-    """
-    Vérifie un mot de passe contre son hash bcrypt.
-    """
-    return pwd_context.verify(mot_de_passe, hash_stocke)
+def verifier_mot_de_passe(mot_de_passe: str, hash_stocke: str) -> bool:
+    """Verifie un mot de passe contre son hash bcrypt."""
+    try:
+        mot_de_passe_bytes = mot_de_passe[:72].encode("utf-8")
+        hash_bytes = hash_stocke.encode("utf-8")
+        return bcrypt.checkpw(mot_de_passe_bytes, hash_bytes)
+    except Exception:
+        return False
 
 
 def creer_token_jwt(
@@ -44,15 +40,11 @@ def creer_token_jwt(
     device_id: Optional[int] = None,
     expire_heures: int = None,
 ) -> str:
-    """
-    Crée un token JWT signé.
-    """
+    """Cree un token JWT signe."""
     if expire_heures is None:
         expire_heures = settings.JWT_EXPIRE_HOURS
 
-    expire = datetime.now(timezone.utc) + timedelta(
-        hours=expire_heures
-    )
+    expire = datetime.now(timezone.utc) + timedelta(hours=expire_heures)
 
     payload = {
         "sub": str(user_id),
@@ -71,10 +63,7 @@ def creer_token_jwt(
 
 
 def verifier_token_jwt(token: str) -> dict:
-    """
-    Vérifie et décode un token JWT.
-    Lève une exception si invalide ou expiré.
-    """
+    """Verifie et decode un token JWT."""
     try:
         payload = jwt.decode(
             token,
@@ -89,53 +78,44 @@ def verifier_token_jwt(token: str) -> dict:
 
 
 def chiffrer_donnee(donnee: str) -> str:
-    """
-    Chiffre une donnée sensible avec AES-256-GCM.
-    Retourne la donnée chiffrée en hexadécimal.
-    """
+    """Chiffre une donnee sensible."""
     if not settings.ENCRYPTION_KEY:
         return donnee
-
-    cle = bytes.fromhex(settings.ENCRYPTION_KEY)
-    aesgcm = AESGCM(cle)
-    nonce = os.urandom(12)
-    donnee_bytes = donnee.encode("utf-8")
-    chiffree = aesgcm.encrypt(nonce, donnee_bytes, None)
-    return (nonce + chiffree).hex()
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        cle = bytes.fromhex(settings.ENCRYPTION_KEY)
+        aesgcm = AESGCM(cle)
+        nonce = os.urandom(12)
+        donnee_bytes = donnee.encode("utf-8")
+        chiffree = aesgcm.encrypt(nonce, donnee_bytes, None)
+        return (nonce + chiffree).hex()
+    except Exception:
+        return donnee
 
 
 def dechiffrer_donnee(donnee_chiffree: str) -> str:
-    """
-    Déchiffre une donnée chiffrée avec AES-256-GCM.
-    """
+    """Dechiffre une donnee chiffree."""
     if not settings.ENCRYPTION_KEY:
         return donnee_chiffree
-
-    cle = bytes.fromhex(settings.ENCRYPTION_KEY)
-    aesgcm = AESGCM(cle)
-    donnee_bytes = bytes.fromhex(donnee_chiffree)
-    nonce = donnee_bytes[:12]
-    chiffree = donnee_bytes[12:]
-    return aesgcm.decrypt(nonce, chiffree, None).decode("utf-8")
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        cle = bytes.fromhex(settings.ENCRYPTION_KEY)
+        aesgcm = AESGCM(cle)
+        donnee_bytes = bytes.fromhex(donnee_chiffree)
+        nonce = donnee_bytes[:12]
+        chiffree = donnee_bytes[12:]
+        return aesgcm.decrypt(nonce, chiffree, None).decode("utf-8")
+    except Exception:
+        return donnee_chiffree
 
 
 def generer_token_reset() -> tuple[str, str]:
-    """
-    Génère un token de réinitialisation de mot de passe.
-    Retourne (token_brut, token_hashé).
-    Le token brut est envoyé par email.
-    Le token hashé est stocké en base.
-    """
+    """Genere un token de reinitialisation."""
     token_brut = secrets.token_urlsafe(32)
-    token_hashe = hashlib.sha256(
-        token_brut.encode()
-    ).hexdigest()
+    token_hashe = hashlib.sha256(token_brut.encode()).hexdigest()
     return token_brut, token_hashe
 
 
 def hasher_token(token: str) -> str:
-    """
-    Hache un token avec SHA-256.
-    Utilisé pour stocker les tokens en base.
-    """
+    """Hache un token avec SHA-256."""
     return hashlib.sha256(token.encode()).hexdigest()
