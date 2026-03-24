@@ -10,6 +10,8 @@ export default function Parametres() {
   const [profile, setProfile] = useState(null)
   const [systemStatus, setSystemStatus] = useState(null)
   const [modelHealth, setModelHealth] = useState(null)
+  const [isRetraining, setIsRetraining] = useState(false)
+  const [retrainFeedback, setRetrainFeedback] = useState('')
 
   const fractions = [
     { id: '1/8', label: '1/8 — Très conservateur', value: 0.125 },
@@ -17,31 +19,60 @@ export default function Parametres() {
     { id: '1/4', label: '1/4 — Modéré', value: 0.25 },
   ]
 
-  useEffect(() => {
-    const charger = async () => {
-      try {
-        const [me, status, perf] = await Promise.all([
-          api.get('/auth/me'),
-          api.get('/system/status'),
-          api.get('/performance/summary'),
-        ])
+  const chargerDonnees = async () => {
+    try {
+      const [me, status, perf] = await Promise.all([
+        api.get('/auth/me'),
+        api.get('/system/status'),
+        api.get('/performance/summary'),
+      ])
 
-        setProfile(me.data)
-        setSystemStatus(status.data)
-        setModelHealth(perf.data?.model_health || null)
+      setProfile(me.data)
+      setSystemStatus(status.data)
+      setModelHealth(perf.data?.model_health || null)
 
-        const profileKelly = me.data?.kelly_fraction
-        const fraction = fractions.find((item) => item.value === profileKelly)
-        if (fraction) {
-          setKelly(fraction.id)
-        }
-      } catch (e) {
-        // L'écran garde ses valeurs de repli si l'API n'est pas disponible.
+      const profileKelly = me.data?.kelly_fraction
+      const fraction = fractions.find((item) => item.value === profileKelly)
+      if (fraction) {
+        setKelly(fraction.id)
       }
+    } catch (e) {
+      // L'écran garde ses valeurs de repli si l'API n'est pas disponible.
     }
+  }
 
-    charger()
+  useEffect(() => {
+    chargerDonnees()
   }, [])
+
+  const lancerEntrainement = async () => {
+    setIsRetraining(true)
+    setRetrainFeedback('')
+
+    try {
+      const response = await api.post(
+        '/system/manual-retrain',
+        {},
+        { timeout: 120000 }
+      )
+
+      if (response.data?.trained) {
+        setRetrainFeedback(`Entraînement terminé. Version ${response.data.model_health?.model_version || 'mise à jour'}.`)
+      } else {
+        setRetrainFeedback("Entraînement lancé, mais aucune nouvelle version n'a été produite.")
+      }
+
+      await chargerDonnees()
+    } catch (e) {
+      const message =
+        e?.error?.message ||
+        e?.message ||
+        "Impossible de lancer l'entraînement."
+      setRetrainFeedback(message)
+    } finally {
+      setIsRetraining(false)
+    }
+  }
 
   const sections = [
     {
@@ -225,6 +256,32 @@ export default function Parametres() {
             </span>
           </div>
         ))}
+
+        <button
+          onClick={lancerEntrainement}
+          disabled={isRetraining}
+          style={{
+            width: '100%',
+            marginTop: '16px',
+            padding: '12px',
+            borderRadius: '10px',
+            border: '1px solid #2563EB33',
+            backgroundColor: isRetraining ? '#1D4ED822' : '#2563EB22',
+            color: '#60A5FA',
+            fontSize: '13px',
+            fontWeight: '600',
+            cursor: isRetraining ? 'wait' : 'pointer',
+            opacity: isRetraining ? 0.7 : 1,
+          }}
+        >
+          {isRetraining ? "Entraînement en cours..." : "Lancer l'entraînement maintenant"}
+        </button>
+
+        {retrainFeedback && (
+          <div style={{ marginTop: '12px', fontSize: '12px', color: '#A0A0A0' }}>
+            {retrainFeedback}
+          </div>
+        )}
       </Card>
 
       <button

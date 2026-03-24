@@ -2,6 +2,7 @@
 Endpoints systeme.
 """
 
+import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -11,6 +12,7 @@ from backend.core.logging import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+manual_retrain_lock = asyncio.Lock()
 
 
 @router.get("/health")
@@ -96,6 +98,83 @@ async def manual_sync(
                 "features": refresh["features"],
                 "pronostics_generated": refresh["pronostics"]["inserted"],
                 "pronostics_inserted": inserted,
+            },
+            "meta": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+    )
+
+
+@router.post("/manual-retrain")
+async def manual_retrain(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Déclenche un réentraînement manuel du modèle actif.
+    """
+    if manual_retrain_lock.locked():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "RETRAIN_IN_PROGRESS",
+                    "message": "Un entraînement est déjà en cours",
+                },
+                "meta": {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
+    from backend.database.connection import obtenir_connexion
+    from backend.scheduler.tasks.automation import entrainer_modele
+
+    logger.info_ctx(
+        "Entrainement manuel demande",
+        context={"user_id": current_user["id"]},
+    )
+
+    async with manual_retrain_lock:
+        resultats = await entrainer_modele()
+
+    conn = obtenir_connexion()
+    version = conn.execute(
+        """
+        SELECT version, trained_at, brier_score_over25, auc_roc_over25
+        FROM model_versions
+        WHERE is_active = 1
+        LIMIT 1
+        """
+    ).fetchone()
+
+    logger.info_ctx(
+        "Entrainement manuel termine",
+        context={
+            "user_id": current_user["id"],
+            "markets": resultats.get("markets", []),
+            "version": version["version"] if version else None,
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "trained": bool(resultats.get("markets")),
+                "markets": resultats.get("markets", []),
+                "metrics": resultats.get("metrics", {}),
+                "model_health": {
+                    "model_version": version["version"] if version else None,
+                    "last_retrain": version["trained_at"] if version else None,
+                    "brier_score": (
+                        version["brier_score_over25"] if version else None
+                    ),
+                    "auc_roc": (
+                        version["auc_roc_over25"] if version else None
+                    ),
+                },
             },
             "meta": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
