@@ -1,11 +1,15 @@
-import React, { useState } from 'react'
-import { User, Shield, Bell, TrendingUp, ChevronRight, LogOut, Sliders } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { User, Shield, Bell, TrendingUp, LogOut, Sliders } from 'lucide-react'
 import Card from '../components/shared/Card.jsx'
 import Badge from '../components/shared/Badge.jsx'
+import api from '../services/api.js'
 
 export default function Parametres() {
   const [kelly, setKelly] = useState('1/8')
   const [notifications, setNotifications] = useState(true)
+  const [profile, setProfile] = useState(null)
+  const [systemStatus, setSystemStatus] = useState(null)
+  const [modelHealth, setModelHealth] = useState(null)
 
   const fractions = [
     { id: '1/8', label: '1/8 — Très conservateur', value: 0.125 },
@@ -13,23 +17,54 @@ export default function Parametres() {
     { id: '1/4', label: '1/4 — Modéré', value: 0.25 },
   ]
 
+  useEffect(() => {
+    const charger = async () => {
+      try {
+        const [me, status, perf] = await Promise.all([
+          api.get('/auth/me'),
+          api.get('/system/status'),
+          api.get('/performance/summary'),
+        ])
+
+        setProfile(me.data)
+        setSystemStatus(status.data)
+        setModelHealth(perf.data?.model_health || null)
+
+        const profileKelly = me.data?.kelly_fraction
+        const fraction = fractions.find((item) => item.value === profileKelly)
+        if (fraction) {
+          setKelly(fraction.id)
+        }
+      } catch (e) {
+        // L'écran garde ses valeurs de repli si l'API n'est pas disponible.
+      }
+    }
+
+    charger()
+  }, [])
+
   const sections = [
     {
       title: 'Compte',
       icon: User,
       items: [
-        { label: 'Email', value: 'vagharlegrand@gmail.com' },
-        { label: 'Bankroll initiale', value: '150.00€' },
-        { label: 'Bankroll actuelle', value: '150.00€' },
+        { label: 'Email', value: profile?.email || '—' },
+        { label: 'Bankroll initiale', value: profile ? `${profile.initial_bankroll.toFixed(2)}€` : '—' },
+        { label: 'Bankroll actuelle', value: profile ? `${profile.current_bankroll.toFixed(2)}€` : '—' },
       ]
     },
     {
       title: 'Système',
       icon: Sliders,
       items: [
-        { label: 'Mode actuel', value: 'Actif', badge: 'success' },
-        { label: 'Marchés actifs', value: 'Over 2.5, BTTS' },
-        { label: 'Ligues suivies', value: '6 ligues' },
+        {
+          label: 'Mode actuel',
+          value: systemStatus?.system_mode === 'active' ? 'Actif' : (systemStatus?.system_mode || '—'),
+          badge: systemStatus?.system_mode === 'active' ? 'success' : 'muted'
+        },
+        { label: 'API', value: systemStatus?.api_status || '—' },
+        { label: 'Catalogue ligues', value: systemStatus ? 'Synchronisé via FootyStats' : '—' },
+        { label: 'Matchs à venir', value: systemStatus?.matchs_a_venir ?? '—' },
       ]
     },
     {
@@ -156,6 +191,41 @@ export default function Parametres() {
           ))}
         </Card>
       ))}
+
+      <Card style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <TrendingUp size={16} color="#666666" />
+          <span style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
+            Entraînement
+          </span>
+        </div>
+
+        {[
+          { label: 'Version du modèle', value: modelHealth?.model_version || '—' },
+          { label: 'Dernier entraînement', value: modelHealth?.last_retrain || '—' },
+          { label: 'Brier Score', value: modelHealth?.brier_score ? modelHealth.brier_score.toFixed(4) : '—' },
+          { label: 'AUC-ROC', value: modelHealth?.auc_roc ? modelHealth.auc_roc.toFixed(4) : '—' },
+          { label: 'Fréquence du retrain', value: 'Toutes les 24h' },
+          { label: 'Premier retrain après redémarrage', value: '10 min' },
+        ].map((item, i, arr) => (
+          <div
+            key={item.label}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: i < arr.length - 1 ? '12px' : 0,
+              marginBottom: i < arr.length - 1 ? '12px' : 0,
+              borderBottom: i < arr.length - 1 ? '1px solid #2E2E2E' : 'none',
+            }}
+          >
+            <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
+            <span style={{ fontSize: '13px', fontWeight: '500', color: '#F5F5F5' }}>
+              {item.value}
+            </span>
+          </div>
+        ))}
+      </Card>
 
       <button
         style={{
