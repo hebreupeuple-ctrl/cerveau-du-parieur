@@ -28,6 +28,9 @@ class DistributedJobLockService:
         )
 
     def acquire(self, job_name: str) -> Optional[str]:
+        # Nettoyage opportuniste des locks expirés d'autres jobs
+        self.cleanup_expired_locks()
+
         token = secrets.token_hex(16)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self.lease_seconds)
@@ -115,5 +118,34 @@ class DistributedJobLockService:
                 (job_name, token),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def cleanup_expired_locks(self) -> int:
+        """
+        Supprime les locks expirés laissés par des processus crashés.
+        Retourne le nombre de locks nettoyés.
+        """
+        conn = creer_connexion()
+        try:
+            now = datetime.now(timezone.utc)
+            cursor = conn.execute(
+                "DELETE FROM scheduler_locks WHERE lock_expires_at < ?",
+                (now.isoformat(),),
+            )
+            conn.commit()
+            count = cursor.rowcount
+            if count > 0:
+                logger.info_ctx(
+                    "Locks expirés nettoyés",
+                    context={"count": count},
+                )
+            return count
+        except sqlite3.Error as exc:
+            logger.warning_ctx(
+                "Erreur nettoyage locks expirés",
+                context={"erreur": str(exc)},
+            )
+            return 0
         finally:
             conn.close()

@@ -29,9 +29,9 @@ def correction_rho(
     if home_goals == 0 and away_goals == 0:
         return 1 - lambda_val * mu_val * rho
     elif home_goals == 1 and away_goals == 0:
-        return 1 + away_goals * rho
+        return 1 + mu_val * rho
     elif home_goals == 0 and away_goals == 1:
-        return 1 + home_goals * rho
+        return 1 + lambda_val * rho
     elif home_goals == 1 and away_goals == 1:
         return 1 - rho
     else:

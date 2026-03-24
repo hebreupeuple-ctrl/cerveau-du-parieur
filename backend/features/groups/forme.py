@@ -21,8 +21,8 @@ def calculer_features_forme(
 
     for n in [3, 5, 10, 20]:
         matchs_n = matchs[:n]
-        features[f"goals_scored_{n}m"] = _moyenne_buts_marques(matchs_n, team_id)
-        features[f"goals_conceded_{n}m"] = _moyenne_buts_encaisses(matchs_n, team_id)
+        features[f"goals_scored_{n}m"] = _moyenne_buts_marques(matchs_n, team_id, max_time)
+        features[f"goals_conceded_{n}m"] = _moyenne_buts_encaisses(matchs_n, team_id, max_time)
         features[f"over25_rate_{n}m"] = _taux_over25(matchs_n)
         features[f"btts_rate_{n}m"] = _taux_btts(matchs_n)
         features[f"ppm_{n}m"] = _points_par_match(matchs_n, team_id)
@@ -38,7 +38,7 @@ def calculer_features_forme(
         3,
     )
     features["win_streak"] = _serie_victoires(matchs, team_id)
-    features["momentum_score"] = _score_momentum(matchs_10, team_id)
+    features["momentum_score"] = _score_momentum(matchs_10, team_id, max_time)
     features["rest_days"] = _jours_repos(conn, team_id, max_time)
     features["matches_last_14"] = _matchs_14_jours(matchs, max_time)
 
@@ -79,13 +79,14 @@ def _recuperer_matchs(
     return cursor.fetchall()
 
 
-def _moyenne_buts_marques(matchs: list, team_id: int) -> float:
+def _moyenne_buts_marques(matchs: list, team_id: int, max_time: int) -> float:
     if not matchs:
         return 0.0
     total = 0.0
     poids_total = 0.0
-    for i, m in enumerate(matchs):
-        poids = math.exp(-XI * i * 7)
+    for m in matchs:
+        jours = (max_time - m["match_timestamp"]) / 86400
+        poids = math.exp(-XI * jours)
         est_dom = m["home_team_id"] == team_id
         buts = m["home_goals"] if est_dom else m["away_goals"]
         total += (buts or 0) * poids
@@ -95,13 +96,14 @@ def _moyenne_buts_marques(matchs: list, team_id: int) -> float:
     return round(total / poids_total, 3)
 
 
-def _moyenne_buts_encaisses(matchs: list, team_id: int) -> float:
+def _moyenne_buts_encaisses(matchs: list, team_id: int, max_time: int) -> float:
     if not matchs:
         return 0.0
     total = 0.0
     poids_total = 0.0
-    for i, m in enumerate(matchs):
-        poids = math.exp(-XI * i * 7)
+    for m in matchs:
+        jours = (max_time - m["match_timestamp"]) / 86400
+        poids = math.exp(-XI * jours)
         est_dom = m["home_team_id"] == team_id
         buts = m["away_goals"] if est_dom else m["home_goals"]
         total += (buts or 0) * poids
@@ -211,13 +213,14 @@ def _serie_victoires(matchs: list, team_id: int) -> int:
     return serie
 
 
-def _score_momentum(matchs: list, team_id: int) -> float:
+def _score_momentum(matchs: list, team_id: int, max_time: int) -> float:
     if not matchs:
         return 0.5
     score = 0.0
     poids_total = 0.0
-    for i, m in enumerate(matchs):
-        poids = math.exp(-XI * i * 7)
+    for m in matchs:
+        jours = (max_time - m["match_timestamp"]) / 86400
+        poids = math.exp(-XI * jours)
         est_dom = m["home_team_id"] == team_id
         hg = m["home_goals"] or 0
         ag = m["away_goals"] or 0
@@ -229,7 +232,8 @@ def _score_momentum(matchs: list, team_id: int) -> float:
         poids_total += poids
     if poids_total == 0:
         return 0.5
-    score_norm = (score / poids_total + 1) / 4
+    # Normalise [-3, +3] → [0, 1] (score/poids_total ∈ [-3, 3], divise par 6 puis +0.5)
+    score_norm = (score / poids_total) / 6.0 + 0.5
     return round(max(0.0, min(1.0, score_norm)), 3)
 
 

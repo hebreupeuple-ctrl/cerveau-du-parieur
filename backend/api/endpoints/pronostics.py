@@ -264,6 +264,119 @@ async def placer_pari(
     })
 
 
+class ResolveRequest(BaseModel):
+    result: str = Field(..., pattern="^(won|lost|void)$")
+
+
+@router.post("/{pronostic_id}/resolve")
+async def resoudre_pronostic(
+    pronostic_id: int,
+    req: ResolveRequest,
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """
+    Résout un pronostic placé : enregistre le résultat (won/lost/void),
+    calcule le profit réel et met à jour la bankroll.
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        pronostic = conn.execute(
+            "SELECT * FROM pronostics WHERE id = ? AND user_id = ?",
+            (pronostic_id, current_user["id"]),
+        ).fetchone()
+
+        if not pronostic:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Pronostic introuvable")
+
+        if pronostic["status"] != "placed":
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Seuls les paris placés peuvent être résolus",
+            )
+
+        stake = pronostic["actual_stake"] or 0.0
+        odds = pronostic["actual_odds"] or 1.0
+
+        if req.result == "won":
+            profit = round(stake * (odds - 1.0), 2)
+            retour = round(stake + profit, 2)
+        elif req.result == "lost":
+            profit = -stake
+            retour = 0.0
+        else:  # void
+            profit = 0.0
+            retour = stake
+
+        user_row = conn.execute(
+            "SELECT current_bankroll FROM users WHERE id = ?",
+            (current_user["id"],),
+        ).fetchone()
+        bankroll_avant = user_row["current_bankroll"] if user_row else 0.0
+        nouvelle_bankroll = round(bankroll_avant + retour, 2)
+
+        conn.execute(
+            """
+            UPDATE pronostics SET
+                status = ?,
+                actual_profit = ?,
+                resolved_at = datetime('now')
+            WHERE id = ?
+            """,
+            (req.result, profit, pronostic_id),
+        )
+
+        conn.execute(
+            """
+            UPDATE users SET
+                current_bankroll = ?,
+                bankroll_updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (nouvelle_bankroll, current_user["id"]),
+        )
+
+        transaction_type = (
+            "bet_won" if req.result == "won"
+            else "bet_void" if req.result == "void"
+            else "bet_lost"
+        )
+        conn.execute(
+            """
+            INSERT INTO bankroll_transactions (
+                user_id, pronostic_id, transaction_type,
+                amount, balance_before, balance_after, reference_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                current_user["id"],
+                pronostic_id,
+                transaction_type,
+                retour,
+                bankroll_avant,
+                nouvelle_bankroll,
+                f"Résolution {req.result} — {pronostic['market']}",
+            ),
+        )
+
+        conn.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+
+    return reponse_succes({
+        "pronostic_id": pronostic_id,
+        "result": req.result,
+        "profit": profit,
+        "new_bankroll": nouvelle_bankroll,
+    })
+
+
 class IgnoreRequest(BaseModel):
     reason: str = None
 

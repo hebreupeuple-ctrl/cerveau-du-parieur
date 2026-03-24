@@ -7,6 +7,7 @@ pour produire les recommandations finales.
 import sqlite3
 import time
 import json
+from datetime import datetime, timezone
 from typing import Optional
 from backend.core.logging import get_logger
 from backend.database.connection import obtenir_connexion
@@ -73,7 +74,24 @@ class GenerateurPronostics:
             (match_id,),
         ).fetchone()
 
-        if not features_row:
+        # Recalcule si absent ou si calculé il y a plus de 2h avant le coup d'envoi
+        doit_recalculer = True
+        if features_row and features_row["calculated_at"]:
+            try:
+                calculated_ts = int(
+                    datetime.fromisoformat(
+                        features_row["calculated_at"].replace("Z", "+00:00")
+                    )
+                    .replace(tzinfo=timezone.utc)
+                    .timestamp()
+                )
+                # Fraîches si calculées dans les 2h précédant la fenêtre max_time
+                if calculated_ts >= match["match_timestamp"] - 4 * 3600:
+                    doit_recalculer = False
+            except (ValueError, TypeError):
+                pass
+
+        if doit_recalculer:
             features_dict = self.feature_pipeline.calculer_features_match(
                 match_id=match_id,
                 match_timestamp=match["match_timestamp"],

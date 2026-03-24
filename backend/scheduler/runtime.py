@@ -152,7 +152,14 @@ class AutomationScheduler:
         resource_name: str = None,
     ) -> dict | None:
         resource_name = resource_name or job_name
-        lock = self._locks.setdefault(resource_name, asyncio.Lock())
+        if resource_name not in self._locks:
+            # Evite la croissance illimitée du dict en nettoyant les locks inutilisés
+            if len(self._locks) > 50:
+                stale = [k for k, v in self._locks.items() if not v.locked()]
+                for k in stale:
+                    del self._locks[k]
+            self._locks[resource_name] = asyncio.Lock()
+        lock = self._locks[resource_name]
         if lock.locked():
             logger.warning_ctx(
                 "Job ignore car deja en cours",

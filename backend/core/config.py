@@ -5,9 +5,11 @@ et les rend disponibles dans toute l'application.
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from typing import Optional
-import secrets
+import logging
+
+_config_logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -19,8 +21,8 @@ class Settings(BaseSettings):
     # Environnement
     ENVIRONMENT: str = "development"
 
-    # Sécurité
-    SECRET_KEY: str = secrets.token_hex(32)
+    # Sécurité — doit être définie dans .env en production
+    SECRET_KEY: str = "dev-insecure-default-key-change-me-in-production-32x"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
     ENCRYPTION_KEY: Optional[str] = None
@@ -102,11 +104,33 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if v.startswith("dev-insecure-default"):
+            _config_logger.warning(
+                "SECRET_KEY utilise la valeur par défaut non sécurisée. "
+                "Définissez SECRET_KEY dans votre fichier .env."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.ENVIRONMENT == "production":
+            if self.SECRET_KEY.startswith("dev-insecure-default"):
+                raise ValueError(
+                    "SECRET_KEY doit être définie explicitement en production."
+                )
+        return self
+
     @field_validator("FOOTYSTATS_API_KEY")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
-        if not v and True:
-            pass
+        if not v:
+            _config_logger.warning(
+                "FOOTYSTATS_API_KEY non définie. "
+                "La collecte de données ne fonctionnera pas."
+            )
         return v
 
     class Config:

@@ -53,19 +53,23 @@ def calculer_mise_finale(
 ) -> float:
     """
     Calcule la mise finale en euros.
-    Respecte les limites minimum et maximum.
+
+    Règles :
+    - Si la mise naturelle (kelly_fraction * bankroll) est inférieure au
+      minimum, on ne mise pas (forcer le minimum serait un overbet).
+    - La mise est plafonnée à mise_maximum_pct de la bankroll.
     """
     if bankroll <= 0 or kelly_fraction <= 0:
         return 0.0
 
-    mise = kelly_fraction * bankroll
-    mise_max = bankroll * mise_maximum_pct
+    mise_naturelle = kelly_fraction * bankroll
 
-    mise = min(mise, mise_max)
-    mise = max(mise, mise_minimum)
-
-    if mise > bankroll * 0.50:
+    # Ne pas forcer le minimum : si Kelly recommande moins, ne pas miser
+    if mise_naturelle < mise_minimum:
         return 0.0
+
+    mise_max = bankroll * mise_maximum_pct
+    mise = min(mise_naturelle, mise_max)
 
     return round(mise, 2)
 

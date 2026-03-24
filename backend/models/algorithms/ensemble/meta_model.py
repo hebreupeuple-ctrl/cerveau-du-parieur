@@ -1,6 +1,5 @@
 """
-Meta-modele de stacking.
-Combine les predictions sans calibration agressive.
+Meta-modele de stacking avec calibration Platt scaling.
 """
 
 import numpy as np
@@ -20,6 +19,7 @@ class MetaModel:
             "logistic_regression": 0.20,
         }
         self.est_calibre = False
+        self._calibrateur = None
 
     def predire(
         self,
@@ -57,18 +57,53 @@ class MetaModel:
         probas_brutes: np.ndarray,
         y_reel: np.ndarray,
     ) -> None:
-        self.est_calibre = True
-        logger.info_ctx(
-            "Meta-modele prêt",
-            context={
-                "marche": self.marche,
-                "std": round(float(probas_brutes.std()), 4),
-                "mean": round(float(probas_brutes.mean()), 4),
-            },
-        )
+        """
+        Calibration Platt scaling : régression logistique sur les scores bruts.
+        Corrige la sur/sous-confiance des probabilités combinées.
+        """
+        try:
+            from sklearn.linear_model import LogisticRegression
+            if len(np.unique(y_reel)) < 2:
+                logger.warning_ctx(
+                    "Calibration ignorée : une seule classe dans y_reel",
+                    context={"marche": self.marche},
+                )
+                self.est_calibre = False
+                return
+
+            calibrateur = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)
+            calibrateur.fit(probas_brutes.reshape(-1, 1), y_reel)
+            self._calibrateur = calibrateur
+            self.est_calibre = True
+
+            probas_cal = calibrateur.predict_proba(probas_brutes.reshape(-1, 1))[:, 1]
+            logger.info_ctx(
+                "Calibration Platt terminée",
+                context={
+                    "marche": self.marche,
+                    "mean_avant": round(float(probas_brutes.mean()), 4),
+                    "mean_apres": round(float(probas_cal.mean()), 4),
+                    "std_avant": round(float(probas_brutes.std()), 4),
+                    "std_apres": round(float(probas_cal.std()), 4),
+                },
+            )
+        except Exception as e:
+            logger.error_ctx(
+                "Erreur calibration Platt",
+                context={"marche": self.marche, "erreur": str(e)},
+            )
+            self.est_calibre = False
 
     def appliquer_calibration(
         self,
         probas: np.ndarray,
     ) -> np.ndarray:
-        return np.clip(probas, 0.05, 0.95)
+        if self.est_calibre and self._calibrateur is not None:
+            try:
+                calibrees = self._calibrateur.predict_proba(
+                    probas.reshape(-1, 1)
+                )[:, 1]
+                return np.clip(calibrees, 0.02, 0.98)
+            except Exception:
+                pass
+        return np.clip(probas, 0.02, 0.98)

@@ -106,20 +106,27 @@ class ModelTrainer:
 
         for row in rows:
             features = []
-            valide = True
 
             for col in FEATURES_COLONNES:
                 val = row[col]
-                if val is None:
-                    val = 0.0
-                features.append(float(val))
+                features.append(float(val) if val is not None else np.nan)
 
             X.append(features)
             labels["over25"].append(int(row["over25"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
 
         X_array = np.array(X, dtype=np.float32)
-        X_array = np.nan_to_num(X_array, nan=0.0)
+
+        # Imputation par médiane par feature (évite le biais du 0 uniforme)
+        self.feature_medians = np.nanmedian(X_array, axis=0)
+        # Fallback à 0.0 si toute la colonne est NaN
+        self.feature_medians = np.where(
+            np.isnan(self.feature_medians), 0.0, self.feature_medians
+        )
+        for i in range(X_array.shape[1]):
+            nan_mask = np.isnan(X_array[:, i])
+            if nan_mask.any():
+                X_array[nan_mask, i] = self.feature_medians[i]
 
         logger.info_ctx(
             "Données chargées",
@@ -234,11 +241,17 @@ class ModelTrainer:
         if not self.modeles:
             self._charger_modeles()
 
-        X = np.array(
-            [[features.get(col, 0.0) or 0.0 for col in FEATURES_COLONNES]],
-            dtype=np.float32,
-        )
-        X = np.nan_to_num(X, nan=0.0)
+        raw = [
+            float(features[col]) if features.get(col) is not None else np.nan
+            for col in FEATURES_COLONNES
+        ]
+        X = np.array([raw], dtype=np.float32)
+
+        # Imputation par médianes apprises à l'entraînement
+        medians = getattr(self, "feature_medians", None)
+        for i in range(X.shape[1]):
+            if np.isnan(X[0, i]):
+                X[0, i] = float(medians[i]) if medians is not None else 0.0
 
         predictions = {}
 
@@ -302,8 +315,12 @@ class ModelTrainer:
         chemin = os.path.join(
             settings.MODELS_DIR, "ensemble_actuel.pkl"
         )
+        payload = {
+            "modeles": self.modeles,
+            "feature_medians": getattr(self, "feature_medians", None),
+        }
         with open(chemin, "wb") as f:
-            pickle.dump(self.modeles, f)
+            pickle.dump(payload, f)
         logger.info_ctx(
             "Modeles sauvegardés",
             context={"chemin": chemin},
@@ -316,7 +333,14 @@ class ModelTrainer:
         )
         if os.path.exists(chemin):
             with open(chemin, "rb") as f:
-                self.modeles = pickle.load(f)
+                payload = pickle.load(f)
+            # Compatibilité avec l'ancien format (dict de modèles directement)
+            if isinstance(payload, dict) and "modeles" in payload:
+                self.modeles = payload["modeles"]
+                self.feature_medians = payload.get("feature_medians")
+            else:
+                self.modeles = payload
+                self.feature_medians = None
             logger.info("Modeles chargés depuis le disque")
         else:
             logger.warning("Aucun modele sauvegardé trouvé")
@@ -333,9 +357,54 @@ class ModelTrainer:
         over25 = resultats.get("over25", {})
         btts = resultats.get("btts", {})
 
-        self.conn.execute(
-            "UPDATE model_versions SET is_active = 0 WHERE is_active = 1"
-        )
+        nouveau_brier_over25 = over25.get("brier_score")
+        nouveau_brier_btts = btts.get("brier_score")
+
+        # Validation : ne pas activer si le nouveau modèle est dégradé
+        actif_precedent = self.conn.execute(
+            """
+            SELECT brier_score_over25, brier_score_btts, version
+            FROM model_versions
+            WHERE is_active = 1
+            LIMIT 1
+            """
+        ).fetchone()
+
+        activer = True
+        if (
+            actif_precedent
+            and nouveau_brier_over25 is not None
+            and nouveau_brier_btts is not None
+            and actif_precedent["brier_score_over25"] is not None
+            and actif_precedent["brier_score_btts"] is not None
+        ):
+            # Brier score : plus bas = meilleur. Tolérance 5%.
+            seuil_degradation = 1.05
+            degradation_over25 = (
+                nouveau_brier_over25
+                > actif_precedent["brier_score_over25"] * seuil_degradation
+            )
+            degradation_btts = (
+                nouveau_brier_btts
+                > actif_precedent["brier_score_btts"] * seuil_degradation
+            )
+            if degradation_over25 and degradation_btts:
+                activer = False
+                logger.warning_ctx(
+                    "Nouveau modele plus faible que le precedent — NON activé",
+                    context={
+                        "version_precedente": actif_precedent["version"],
+                        "brier_over25_ancien": actif_precedent["brier_score_over25"],
+                        "brier_over25_nouveau": nouveau_brier_over25,
+                        "brier_btts_ancien": actif_precedent["brier_score_btts"],
+                        "brier_btts_nouveau": nouveau_brier_btts,
+                    },
+                )
+
+        if activer:
+            self.conn.execute(
+                "UPDATE model_versions SET is_active = 0 WHERE is_active = 1"
+            )
 
         self.conn.execute(
             """
@@ -347,7 +416,7 @@ class ModelTrainer:
                 log_loss_over25, log_loss_btts,
                 auc_roc_over25, auc_roc_btts,
                 selected_features_json, artifact_path, is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 version,
@@ -355,21 +424,22 @@ class ModelTrainer:
                 training_data_start,
                 training_data_end,
                 n_matchs,
-                over25.get("brier_score"),
-                btts.get("brier_score"),
+                nouveau_brier_over25,
+                nouveau_brier_btts,
                 over25.get("log_loss"),
                 btts.get("log_loss"),
                 over25.get("auc_roc"),
                 btts.get("auc_roc"),
                 json.dumps(FEATURES_COLONNES, ensure_ascii=False),
                 artifact_path,
+                1 if activer else 0,
             ),
         )
         self.conn.commit()
 
         logger.info_ctx(
             "Version modele enregistree",
-            context={"version": version},
+            context={"version": version, "active": activer},
         )
 
     def _timestamp_vers_iso(self, timestamp: int) -> str:
