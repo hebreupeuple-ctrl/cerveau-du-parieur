@@ -110,10 +110,13 @@ def calculer_fraction_adaptative(
 
     ratio_bankroll = bankroll_actuelle / max(bankroll_initiale, 1.0)
 
-    if ratio_bankroll < 0.60:
-        fraction = min(fraction, 0.125)
-    elif ratio_bankroll < 0.80:
+    # Appliqué séquentiellement : le palier < 60 % est toujours plus restrictif
+    # que le palier < 80 %, quelle que soit la fraction de départ.
+    if ratio_bankroll < 0.80:
         fraction = fraction * 0.5
+    if ratio_bankroll < 0.60:
+        # Hard-cap : même après le halving, ne dépasse pas 1/16
+        fraction = min(fraction, 0.0625)
 
     return round(fraction, 4)
 

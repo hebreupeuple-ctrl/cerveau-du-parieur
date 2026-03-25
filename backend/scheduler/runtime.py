@@ -136,11 +136,20 @@ class AutomationScheduler:
                 await asyncio.sleep(interval_seconds)
 
             while True:
-                await self._executer_job(
-                    job_name,
-                    job_fn,
-                    resource_name=resource_name,
-                )
+                try:
+                    await self._executer_job(
+                        job_name,
+                        job_fn,
+                        resource_name=resource_name,
+                    )
+                except Exception as exc:
+                    logger.error_ctx(
+                        "Exception non gérée dans la boucle job — redémarrage au prochain cycle",
+                        context={
+                            "job_name": job_name,
+                            "erreur": str(exc),
+                        },
+                    )
                 await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             raise

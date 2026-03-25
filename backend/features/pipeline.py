@@ -147,6 +147,10 @@ class FeaturePipeline:
         """
         return self._sauvegarder_features(features, commit=True)
 
+    def invalider_cache_colonnes(self) -> None:
+        """Invalide le cache des colonnes (à appeler après une migration)."""
+        self._colonnes_match_features = None
+
     def _sauvegarder_features(
         self,
         features: dict,
@@ -161,6 +165,21 @@ class FeaturePipeline:
                 k for k in features.keys()
                 if k in colonnes_valides
             ]
+
+            # Log les features calculées mais absentes du schéma
+            ignorees = [
+                k for k in features.keys()
+                if k not in colonnes_valides
+                and k not in ("match_id", "max_time_used")
+            ]
+            if ignorees:
+                logger.warning_ctx(
+                    "Features ignorées : colonnes absentes de match_features",
+                    context={
+                        "match_id": features.get("match_id"),
+                        "colonnes_manquantes": ignorees,
+                    },
+                )
 
             if not colonnes:
                 return False

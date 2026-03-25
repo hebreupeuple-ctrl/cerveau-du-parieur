@@ -2,9 +2,17 @@
 Modele Random Forest pour la prediction de marches de paris.
 """
 
+import warnings
 import numpy as np
 from typing import Optional
 from backend.core.logging import get_logger
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"`sklearn\.utils\.parallel\.delayed` should be used",
+    category=UserWarning,
+    module=r"sklearn\.utils\.parallel",
+)
 
 logger = get_logger(__name__)
 

@@ -53,14 +53,18 @@ class OddsCollector:
             "odds_home": safe_float(data.get("odds_1")),
             "odds_draw": safe_float(data.get("odds_x")),
             "odds_away": safe_float(data.get("odds_2")),
-            "odds_over25": safe_float(data.get("odds_over25")),
-            "odds_under25": safe_float(data.get("odds_under25")),
-            "odds_btts_yes": safe_float(data.get("odds_btts_yes")),
-            "odds_btts_no": safe_float(data.get("odds_btts_no")),
             "odds_over15": safe_float(data.get("odds_over15")),
             "odds_under15": safe_float(data.get("odds_under15")),
+            "odds_over25": safe_float(data.get("odds_over25")),
+            "odds_under25": safe_float(data.get("odds_under25")),
             "odds_over35": safe_float(data.get("odds_over35")),
             "odds_under35": safe_float(data.get("odds_under35")),
+            "odds_over45": safe_float(data.get("odds_over45")),
+            "odds_under45": safe_float(data.get("odds_under45")),
+            "odds_btts_yes": safe_float(data.get("odds_btts_yes")),
+            "odds_btts_no": safe_float(data.get("odds_btts_no")),
+            "odds_over15_ht": safe_float(data.get("odds_over15_ht")),
+            "odds_under15_ht": safe_float(data.get("odds_under15_ht")),
         }
         return {k: v for k, v in cotes.items() if v is not None}
 
@@ -79,6 +83,24 @@ class OddsCollector:
 
         prob_over25 = round(1 / cotes["odds_over25"], 4) if cotes.get("odds_over25") else None
         prob_btts = round(1 / cotes["odds_btts_yes"], 4) if cotes.get("odds_btts_yes") else None
+
+        # Correction de marge pour over45
+        prob_over45 = None
+        o45 = cotes.get("odds_over45")
+        u45 = cotes.get("odds_under45")
+        if o45 and u45 and o45 > 1.0 and u45 > 1.0:
+            somme45 = 1.0 / o45 + 1.0 / u45
+            if somme45 > 0:
+                prob_over45 = round((1.0 / o45) / somme45, 4)
+
+        # Correction de marge pour over15_ht
+        prob_over15_ht = None
+        o15ht = cotes.get("odds_over15_ht")
+        u15ht = cotes.get("odds_under15_ht")
+        if o15ht and u15ht and o15ht > 1.0 and u15ht > 1.0:
+            somme15ht = 1.0 / o15ht + 1.0 / u15ht
+            if somme15ht > 0:
+                prob_over15_ht = round((1.0 / o15ht) / somme15ht, 4)
 
         prob_home = None
         prob_draw = None
@@ -102,9 +124,12 @@ class OddsCollector:
                 odds_over15, odds_under15,
                 odds_over25, odds_under25,
                 odds_over35, odds_under35,
+                odds_over45, odds_under45,
                 odds_btts_yes, odds_btts_no,
-                prob_over25_corrected, prob_btts_corrected
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                odds_over15_ht, odds_under15_ht,
+                prob_over25_corrected, prob_btts_corrected,
+                prob_over45_corrected, prob_over15_ht_corrected
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 match_id, "footystats", 2,
@@ -114,8 +139,11 @@ class OddsCollector:
                 cotes.get("odds_over15"), cotes.get("odds_under15"),
                 cotes.get("odds_over25"), cotes.get("odds_under25"),
                 cotes.get("odds_over35"), cotes.get("odds_under35"),
+                cotes.get("odds_over45"), cotes.get("odds_under45"),
                 cotes.get("odds_btts_yes"), cotes.get("odds_btts_no"),
+                cotes.get("odds_over15_ht"), cotes.get("odds_under15_ht"),
                 prob_over25, prob_btts,
+                prob_over45, prob_over15_ht,
             ),
         )
         self.conn.commit()
