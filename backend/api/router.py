@@ -89,12 +89,13 @@ def creer_app(env: str = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    from backend.api.endpoints import auth, pronostics, performance, systeme
+    from backend.api.endpoints import auth, pronostics, performance, systeme, analyse
 
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(pronostics.router, prefix="/api/v1/pronostics", tags=["pronostics"])
     app.include_router(performance.router, prefix="/api/v1/performance", tags=["performance"])
     app.include_router(systeme.router, prefix="/api/v1/system", tags=["system"])
+    app.include_router(analyse.router, prefix="/api/v1/analyse", tags=["analyse"])
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):
