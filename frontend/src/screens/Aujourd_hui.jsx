@@ -205,6 +205,14 @@ export default function Aujourd_hui() {
   }, [])
 
   const handlePlace = async (id, stake, odds) => {
+    // Mise à jour optimiste de la bankroll avant la réponse serveur
+    const bankrollAvant = data?.bankroll_summary?.current
+    if (bankrollAvant != null) {
+      setData(prev => ({
+        ...prev,
+        bankroll_summary: { ...prev.bankroll_summary, current: bankrollAvant - stake },
+      }))
+    }
     try {
       await api.post(`/pronostics/${id}/place`, {
         actual_stake: stake,
@@ -212,6 +220,13 @@ export default function Aujourd_hui() {
       })
       charger()
     } catch (e) {
+      // Rollback optimiste si l'API échoue
+      if (bankrollAvant != null) {
+        setData(prev => ({
+          ...prev,
+          bankroll_summary: { ...prev.bankroll_summary, current: bankrollAvant },
+        }))
+      }
       alert('Erreur lors de la validation du pari')
     }
   }

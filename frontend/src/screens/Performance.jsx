@@ -1,40 +1,11 @@
-import React, { useState } from 'react'
-import { TrendingUp, TrendingDown, Target, Award, BarChart2, AlertTriangle } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { TrendingUp, TrendingDown, Target, Award, BarChart2, AlertTriangle, RefreshCw } from 'lucide-react'
 import Card from '../components/shared/Card.jsx'
 import Badge from '../components/shared/Badge.jsx'
+import Skeleton from '../components/shared/Skeleton.jsx'
+import api from '../services/api.js'
 
-const mockPerf = {
-  metrics: {
-    roi: 0.083,
-    avg_clv: 0.041,
-    max_drawdown: -0.112,
-    win_rate: 0.68,
-  },
-  volume: {
-    total_bets: 0,
-    bets_won: 0,
-    bets_lost: 0,
-    total_staked: 0,
-    total_profit: 0,
-  },
-  bankroll: {
-    initial: 150.00,
-    current: 150.00,
-  },
-  by_market: [
-    { market: 'over25', market_label: 'Over 2.5', bets: 0, roi: null, is_active: true },
-    { market: 'btts', market_label: 'BTTS', bets: 0, roi: null, is_active: true },
-  ],
-  model_health: {
-    brier_score: 0.2487,
-    auc_roc: 0.5776,
-    last_retrain: '2026-03-24',
-    model_version: '2026.03.v1',
-    bias_alerts: [],
-  }
-}
-
-function MetricCard({ label, value, sub, icon: Icon, color = '#F5F5F5', positive }) {
+function MetricCard({ label, value, sub, icon: Icon, color = '#F5F5F5' }) {
   return (
     <Card style={{ flex: 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
@@ -57,40 +28,71 @@ function MetricCard({ label, value, sub, icon: Icon, color = '#F5F5F5', positive
 
 export default function Performance() {
   const [period, setPeriod] = useState('all')
-  const data = mockPerf
+  const [data, setData]     = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]   = useState(null)
+
+  const charger = useCallback(async (p = period) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api.get('/performance/summary', { params: { period: p } })
+      setData(res.data)
+    } catch {
+      setError('Impossible de charger les performances')
+    } finally {
+      setLoading(false)
+    }
+  }, [period])
+
+  useEffect(() => {
+    charger(period)
+  }, [period])
+
+  const handlePeriod = (p) => {
+    setPeriod(p)
+  }
 
   const periods = [
-    { id: 'week', label: 'Semaine' },
+    { id: 'week',  label: 'Semaine' },
     { id: 'month', label: 'Mois' },
-    { id: 'all', label: 'Total' },
+    { id: 'all',   label: 'Total' },
   ]
 
+  const fmt = (v, suffix = '%', decimals = 1) =>
+    v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(decimals)}${suffix}`
+
+  const vol   = data?.volume   || {}
+  const metr  = data?.metrics  || {}
+  const bank  = data?.bankroll || {}
+  const model = data?.model_health || {}
+
+  const noParis = !vol.total_bets
+
   return (
-    <div style={{ padding: '16px' }}>
-      <div style={{ paddingTop: '8px', marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#F5F5F5' }}>
-          Performance
-        </h1>
-        <p style={{ fontSize: '13px', color: '#666666', marginTop: '2px' }}>
-          Suivi de vos résultats
-        </p>
+    <div style={{ padding: '16px', paddingBottom: '32px' }}>
+      {/* En-tête */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: '8px', marginBottom: '20px' }}>
+        <div>
+          <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#F5F5F5' }}>Performance</h1>
+          <p style={{ fontSize: '13px', color: '#666666', marginTop: '2px' }}>Suivi de vos résultats</p>
+        </div>
+        <button onClick={() => charger(period)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+          <RefreshCw size={18} color="#555" />
+        </button>
       </div>
 
+      {/* Filtres période */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '20px' }}>
         {periods.map(p => (
           <button
             key={p.id}
-            onClick={() => setPeriod(p.id)}
+            onClick={() => handlePeriod(p.id)}
             style={{
-              flex: 1,
-              padding: '8px',
-              borderRadius: '8px',
-              border: 'none',
+              flex: 1, padding: '8px', borderRadius: '8px', border: 'none',
               backgroundColor: period === p.id ? '#2563EB' : '#242424',
               color: period === p.id ? '#FFFFFF' : '#666666',
-              fontSize: '13px',
-              fontWeight: '500',
-              cursor: 'pointer',
+              fontSize: '13px', fontWeight: '500', cursor: 'pointer',
             }}
           >
             {p.label}
@@ -98,128 +100,158 @@ export default function Performance() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-        <MetricCard
-          label="ROI Global"
-          value={data.volume.total_bets === 0 ? '—' : `+${(data.metrics.roi * 100).toFixed(1)}%`}
-          sub="Retour sur investissement"
-          icon={TrendingUp}
-          color={data.metrics.roi >= 0 ? '#16A34A' : '#DC2626'}
-        />
-        <MetricCard
-          label="CLV Moyen"
-          value={data.volume.total_bets === 0 ? '—' : `+${(data.metrics.avg_clv * 100).toFixed(1)}%`}
-          sub="Closing Line Value"
-          icon={Target}
-          color="#2563EB"
-        />
-        <MetricCard
-          label="Drawdown Max"
-          value={data.volume.total_bets === 0 ? '—' : `${(data.metrics.max_drawdown * 100).toFixed(1)}%`}
-          sub="Perte maximale"
-          icon={TrendingDown}
-          color="#DC2626"
-        />
-        <MetricCard
-          label="Paris joués"
-          value={data.volume.total_bets}
-          sub={`${data.volume.bets_won}G / ${data.volume.bets_lost}P`}
-          icon={BarChart2}
-          color="#F5F5F5"
-        />
-      </div>
-
-      <Card style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <span style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5' }}>
-            Bankroll
-          </span>
-          <Badge variant="muted">Départ : {data.bankroll.initial.toFixed(2)}€</Badge>
-        </div>
-        <div style={{ fontSize: '32px', fontWeight: '700', color: '#F5F5F5', marginBottom: '4px' }}>
-          {data.bankroll.current.toFixed(2)}€
-        </div>
-        <div style={{ fontSize: '13px', color: '#666666' }}>
-          {data.volume.total_bets === 0
-            ? 'Aucun pari encore placé'
-            : `${data.volume.total_profit >= 0 ? '+' : ''}${data.volume.total_profit.toFixed(2)}€ de profit`
-          }
-        </div>
-
-        <div style={{
-          marginTop: '20px',
-          height: '80px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#1A1A1A',
-          borderRadius: '8px',
-          border: '1px dashed #333333',
-        }}>
-          <span style={{ fontSize: '12px', color: '#444444' }}>
-            Graphique disponible après les premiers paris
-          </span>
-        </div>
-      </Card>
-
-      <Card style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
-          Santé du modèle
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {[
-            { label: 'Brier Score', value: data.model_health.brier_score.toFixed(4), status: data.model_health.brier_score < 0.25 ? 'Excellent' : 'Bon', color: '#16A34A' },
-            { label: 'AUC-ROC', value: data.model_health.auc_roc.toFixed(4), status: data.model_health.auc_roc > 0.60 ? 'Bon' : 'Correct', color: '#2563EB' },
-            { label: 'Version modèle', value: data.model_health.model_version, status: null, color: '#F5F5F5' },
-            { label: 'Dernier entraînement', value: data.model_health.last_retrain, status: null, color: '#F5F5F5' },
-          ].map(item => (
-            <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: '600', color: item.color }}>
-                  {item.value}
-                </span>
-                {item.status && (
-                  <Badge variant="success" style={{ fontSize: '10px' }}>{item.status}</Badge>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
-          Par marché
-        </div>
-        {data.by_market.map(m => (
-          <div key={m.market} style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingBottom: '12px',
-            marginBottom: '12px',
-            borderBottom: '1px solid #2E2E2E',
-          }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: '500', color: '#F5F5F5' }}>
-                {m.market_label}
-              </div>
-              <div style={{ fontSize: '12px', color: '#666666', marginTop: '2px' }}>
-                {m.bets} paris
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '15px', fontWeight: '700', color: m.roi === null ? '#666666' : m.roi >= 0 ? '#16A34A' : '#DC2626' }}>
-                {m.roi === null ? '—' : `${m.roi >= 0 ? '+' : ''}${(m.roi * 100).toFixed(1)}%`}
-              </div>
-              <Badge variant={m.is_active ? 'success' : 'danger'} style={{ fontSize: '10px', marginTop: '4px' }}>
-                {m.is_active ? 'Actif' : 'Inactif'}
-              </Badge>
-            </div>
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {[1,2,3,4].map(i => <Skeleton key={i} height={80} style={{ borderRadius: '10px' }} />)}
           </div>
-        ))}
-      </Card>
+          <Skeleton height={140} style={{ borderRadius: '10px' }} />
+          <Skeleton height={180} style={{ borderRadius: '10px' }} />
+        </div>
+      ) : error ? (
+        <Card style={{ textAlign: 'center', padding: '32px 16px' }}>
+          <AlertTriangle size={28} color="#DC2626" style={{ margin: '0 auto 12px' }} />
+          <p style={{ color: '#DC2626', fontSize: '13px' }}>{error}</p>
+        </Card>
+      ) : (
+        <>
+          {/* Métriques */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+            <MetricCard
+              label="ROI Global"
+              value={noParis ? '—' : fmt(metr.roi)}
+              sub="Retour sur investissement"
+              icon={TrendingUp}
+              color={metr.roi == null ? '#666' : metr.roi >= 0 ? '#16A34A' : '#DC2626'}
+            />
+            <MetricCard
+              label="Win Rate"
+              value={noParis ? '—' : metr.win_rate == null ? '—' : `${(metr.win_rate * 100).toFixed(0)}%`}
+              sub={noParis ? '—' : `${vol.bets_won ?? 0}G / ${vol.bets_lost ?? 0}P`}
+              icon={Target}
+              color="#2563EB"
+            />
+            <MetricCard
+              label="Profit net"
+              value={noParis ? '—' : `${vol.total_profit >= 0 ? '+' : ''}${(vol.total_profit || 0).toFixed(2)}€`}
+              sub={`${(vol.total_staked || 0).toFixed(2)}€ misés`}
+              icon={BarChart2}
+              color={vol.total_profit >= 0 ? '#16A34A' : '#DC2626'}
+            />
+            <MetricCard
+              label="Paris joués"
+              value={vol.total_bets ?? 0}
+              sub={noParis ? 'Aucun pari encore' : `dont ${vol.bets_void ?? 0} annulé(s)`}
+              icon={Award}
+              color="#F5F5F5"
+            />
+          </div>
+
+          {/* Bankroll */}
+          <Card style={{ marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5' }}>Bankroll</span>
+              <Badge variant="muted">Départ : {(bank.initial || 0).toFixed(2)}€</Badge>
+            </div>
+            <div style={{ fontSize: '32px', fontWeight: '700', color: '#F5F5F5', marginBottom: '4px' }}>
+              {(bank.current || 0).toFixed(2)}€
+            </div>
+            <div style={{ fontSize: '13px', color: bank.current >= bank.initial ? '#16A34A' : '#DC2626' }}>
+              {bank.current == null || bank.initial == null
+                ? ''
+                : `${bank.current - bank.initial >= 0 ? '+' : ''}${(bank.current - bank.initial).toFixed(2)}€ depuis le départ`
+              }
+            </div>
+            <div style={{
+              marginTop: '20px', height: '80px', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#1A1A1A', borderRadius: '8px', border: '1px dashed #333333',
+            }}>
+              <span style={{ fontSize: '12px', color: '#444444' }}>
+                Graphique disponible après les premiers paris
+              </span>
+            </div>
+          </Card>
+
+          {/* Santé du modèle */}
+          <Card style={{ marginBottom: '16px' }}>
+            <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
+              Santé du modèle
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[
+                {
+                  label: 'Brier Score',
+                  value: model.brier_score != null ? model.brier_score.toFixed(4) : '—',
+                  status: model.brier_score != null ? (model.brier_score < 0.25 ? 'Excellent' : 'Bon') : null,
+                  color: '#16A34A',
+                },
+                {
+                  label: 'AUC-ROC',
+                  value: model.auc_roc != null ? model.auc_roc.toFixed(4) : '—',
+                  status: model.auc_roc != null ? (model.auc_roc > 0.60 ? 'Bon' : 'Correct') : null,
+                  color: '#2563EB',
+                },
+                {
+                  label: 'Matchs entraînement',
+                  value: model.total_matches_trained ?? '—',
+                  status: null,
+                  color: '#F5F5F5',
+                },
+                {
+                  label: 'Version modèle',
+                  value: model.model_version ?? '—',
+                  status: null,
+                  color: '#F5F5F5',
+                },
+                {
+                  label: 'Dernier entraînement',
+                  value: model.last_retrain ? new Date(model.last_retrain).toLocaleDateString('fr-FR') : '—',
+                  status: null,
+                  color: '#F5F5F5',
+                },
+              ].map(item => (
+                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: '#A0A0A0' }}>{item.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: item.color }}>{item.value}</span>
+                    {item.status && <Badge variant="success" style={{ fontSize: '10px' }}>{item.status}</Badge>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Par marché */}
+          {data?.by_market?.length > 0 && (
+            <Card>
+              <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
+                Par marché
+              </div>
+              {data.by_market.map((m, i) => (
+                <div key={m.market} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  paddingBottom: '12px', marginBottom: '12px',
+                  borderBottom: i < data.by_market.length - 1 ? '1px solid #2E2E2E' : 'none',
+                }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#F5F5F5' }}>{m.market_label}</div>
+                    <div style={{ fontSize: '12px', color: '#666666', marginTop: '2px' }}>{m.bets} paris</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '15px', fontWeight: '700', color: m.roi == null ? '#666666' : m.roi >= 0 ? '#16A34A' : '#DC2626' }}>
+                      {m.roi == null ? '—' : `${m.roi >= 0 ? '+' : ''}${(m.roi * 100).toFixed(1)}%`}
+                    </div>
+                    <Badge variant={m.is_active ? 'success' : 'danger'} style={{ fontSize: '10px', marginTop: '4px' }}>
+                      {m.is_active ? 'Actif' : 'Inactif'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
+      )}
     </div>
   )
 }

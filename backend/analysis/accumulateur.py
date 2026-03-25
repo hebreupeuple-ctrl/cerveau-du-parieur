@@ -207,13 +207,28 @@ class GenerateurPronostics:
         if not pred_ml:
             return proba_dc
 
-        poids_dc = 0.60
-        poids_ml = 0.40
+        # Poids DC/ML calibrés par marché :
+        # - 1x2 : DC seul (Dixon-Coles est optimal pour les issues de match)
+        # - over15/35 : ML plus léger (rares dans l'entraînement), DC majoritaire
+        # - over25/btts : fusion équilibrée, ML apporte la forme récente
+        # - over15_ht : géré séparément ci-dessous
+        POIDS_PAR_MARCHE = {
+            "prob_home_win":  (1.00, 0.00),
+            "prob_draw":      (1.00, 0.00),
+            "prob_away_win":  (1.00, 0.00),
+            "prob_over15":    (0.65, 0.35),
+            "prob_over25":    (0.55, 0.45),
+            "prob_over35":    (0.65, 0.35),
+            "prob_over45":    (0.75, 0.25),
+            "prob_btts":      (0.55, 0.45),
+            "prob_btts_no":   (0.55, 0.45),
+        }
 
         result = {}
         for k, v_dc in proba_dc.items():
             cle_ml = f"ml_{k}"
-            if cle_ml in pred_ml:
+            poids_dc, poids_ml = POIDS_PAR_MARCHE.get(k, (0.60, 0.40))
+            if cle_ml in pred_ml and poids_ml > 0:
                 v_ml = pred_ml[cle_ml]
                 result[k] = round(
                     v_dc * poids_dc + v_ml * poids_ml, 4

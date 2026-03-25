@@ -109,6 +109,7 @@ class MetaModel:
         # Repli : moyenne pondérée par les poids fixes
         predictions = []
         poids_actifs = []
+        manquants = []
         for pred, key in zip(
             [pred_xgb, pred_rf, pred_lr],
             ["xgboost", "random_forest", "logistic_regression"],
@@ -116,6 +117,14 @@ class MetaModel:
             if pred is not None:
                 predictions.append(pred)
                 poids_actifs.append(self.poids[key])
+            else:
+                manquants.append(key)
+
+        if manquants:
+            logger.warning_ctx(
+                "MetaModel : repli sur poids renormalisés (sous-modèle(s) manquant(s))",
+                context={"marche": self.marche, "manquants": manquants},
+            )
 
         poids_total = sum(poids_actifs)
         poids_normalises = [p / poids_total for p in poids_actifs]
@@ -175,7 +184,7 @@ class MetaModel:
                 calibrees = self._calibrateur.predict_proba(
                     probas.reshape(-1, 1)
                 )[:, 1]
-                return np.clip(calibrees, 0.02, 0.98)
+                return np.clip(calibrees, 0.01, 0.99)
             except Exception:
                 pass
-        return np.clip(probas, 0.02, 0.98)
+        return np.clip(probas, 0.01, 0.99)

@@ -185,11 +185,22 @@ async def rafraichir_matchs_cotes_et_pronostics(
         calculer_features_matchs_a_venir,
         heures,
     )
-    pronostics = await asyncio.to_thread(
-        regenerer_pronostics,
-        user_ids,
-        max_pronostics,
-    )
+
+    # Ne pas générer les pronostics si le calcul des features a totalement échoué
+    # (évite de produire des recommandations sur données obsolètes)
+    features_ok = features.get("ok", 0) > 0 or features.get("total", 0) == 0
+    if not features_ok:
+        logger.warning_ctx(
+            "Génération pronostics ignorée : aucune feature calculée avec succès",
+            context={"features": features},
+        )
+        pronostics = {"users": 0, "inserted": 0, "skipped": True}
+    else:
+        pronostics = await asyncio.to_thread(
+            regenerer_pronostics,
+            user_ids,
+            max_pronostics,
+        )
 
     return {
         "matchs_du_jour": matchs_du_jour,

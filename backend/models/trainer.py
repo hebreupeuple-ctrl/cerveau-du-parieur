@@ -129,13 +129,22 @@ def _calculer_features_interaction(features_dict: dict) -> list:
     Calcule les features d'interaction à partir du dictionnaire de features brutes.
     Ces features capturent directement la dynamique match-niveau.
     Retourne une liste de valeurs dans l'ordre de FEATURES_INTERACTION.
+
+    Les features xG retournent np.nan quand la donnée est absente (≠ 0.0)
+    pour que l'imputation par médiane s'applique correctement à l'entraînement
+    et à l'inférence — évite de confondre "pas de données xG" avec "0 xG".
     """
     def safe(key: str, default: float = 0.0) -> float:
         v = features_dict.get(key)
         return float(v) if v is not None else default
 
-    home_xg_gen  = safe("home_xg_generated_5m")
-    away_xg_gen  = safe("away_xg_generated_5m")
+    def safe_xg(key: str) -> float:
+        """Retourne np.nan si absent : distingue donnée manquante de vrai zéro."""
+        v = features_dict.get(key)
+        return float(v) if v is not None else np.nan
+
+    home_xg_gen  = safe_xg("home_xg_generated_5m")
+    away_xg_gen  = safe_xg("away_xg_generated_5m")
     home_goals_s = safe("home_goals_scored_5m")
     away_goals_s = safe("away_goals_scored_5m")
     home_goals_c = safe("home_goals_conceded_5m")
@@ -147,8 +156,11 @@ def _calculer_features_interaction(features_dict: dict) -> list:
     league_avg   = safe("league_goals_avg", default=2.5)
     league_o25   = safe("league_over25_rate", default=0.489)
 
-    # xG total du match
-    match_xg_total = round(home_xg_gen + away_xg_gen, 3)
+    # xG total : NaN si l'un des deux manque (sera imputé par médiane)
+    if np.isnan(home_xg_gen) or np.isnan(away_xg_gen):
+        match_xg_total = np.nan
+    else:
+        match_xg_total = round(home_xg_gen + away_xg_gen, 3)
 
     # Proxy buts attendus home : moyenne entre "ce que home marque" et "ce qu'away concède"
     home_expected = round((home_goals_s + away_goals_c) / 2, 3)
