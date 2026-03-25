@@ -391,7 +391,7 @@ def generer_et_sauvegarder_pronostics_utilisateur(
     for pronostic in pronostics:
         conn.execute(
             """
-            INSERT INTO pronostics (
+            INSERT OR IGNORE INTO pronostics (
                 user_id, match_id, market,
                 model_probability, bookmaker_probability, probability_edge,
                 expected_value, reference_bookmaker, reference_odds,
@@ -671,6 +671,8 @@ def _auto_resoudre_pronostics_sync() -> dict:
             WHERE p.status = 'placed'
             AND m.status = 'complete'
             AND m.home_goals IS NOT NULL
+            AND m.away_goals IS NOT NULL
+            AND datetime(m.updated_at) > datetime(m.match_timestamp, 'unixepoch')
             """
         ).fetchall()
 
