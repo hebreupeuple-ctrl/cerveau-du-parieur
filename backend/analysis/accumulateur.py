@@ -127,6 +127,7 @@ class GenerateurPronostics:
         matrice = pred_dc.get("score_matrix", {}) if pred_dc else {}
 
         cotes = self._obtenir_cotes(match_id)
+        cotes_reelles = bool(cotes)
 
         if not cotes:
             cotes = self._generer_cotes_reference(probabilites_finales)
@@ -134,7 +135,8 @@ class GenerateurPronostics:
         opportunites = analyser_match(
             probabilites_modele=probabilites_finales,
             cotes_disponibles=cotes,
-            seuil_confiance=0.55,
+            seuil_confiance=0.50,
+            cotes_reelles=cotes_reelles,
         )
 
         pronostics = []
@@ -254,41 +256,28 @@ class GenerateurPronostics:
         """
         Genere des cotes de reference depuis les probabilites
         quand aucune cote bookmaker n'est disponible.
-        Applique une marge de 5% simulant un bookmaker moyen.
+        Applique une marge de 10% simulant un bookmaker moyen.
+        Une marge de 5% était trop faible : avec seuil_edge=0.05,
+        le max edge atteignable était 4.76% (jamais suffisant).
+        À 10%, edge = prob * 0.0909 → passe le seuil dès prob >= 0.55.
         """
-        marge = 1.05
+        marge = 1.10
 
         cotes = {}
 
-        if probabilites.get("prob_over25"):
-            p = probabilites["prob_over25"]
-            if p > 0.05:
-                cotes["odds_over25"] = round(marge / p, 2)
-
-        if probabilites.get("prob_btts"):
-            p = probabilites["prob_btts"]
-            if p > 0.05:
-                cotes["odds_btts_yes"] = round(marge / p, 2)
-
-        if probabilites.get("prob_over15"):
-            p = probabilites["prob_over15"]
-            if p > 0.05:
-                cotes["odds_over15"] = round(marge / p, 2)
-
-        if probabilites.get("prob_home_win"):
-            p = probabilites["prob_home_win"]
-            if p > 0.05:
-                cotes["odds_home"] = round(marge / p, 2)
-
-        if probabilites.get("prob_draw"):
-            p = probabilites["prob_draw"]
-            if p > 0.05:
-                cotes["odds_draw"] = round(marge / p, 2)
-
-        if probabilites.get("prob_away_win"):
-            p = probabilites["prob_away_win"]
-            if p > 0.05:
-                cotes["odds_away"] = round(marge / p, 2)
+        for cle_prob, cle_cote in [
+            ("prob_over15",    "odds_over15"),
+            ("prob_over25",    "odds_over25"),
+            ("prob_over35",    "odds_over35"),
+            ("prob_over45",    "odds_over45"),
+            ("prob_btts",      "odds_btts_yes"),
+            ("prob_home_win",  "odds_home"),
+            ("prob_draw",      "odds_draw"),
+            ("prob_away_win",  "odds_away"),
+        ]:
+            p = probabilites.get(cle_prob)
+            if p and p > 0.05:
+                cotes[cle_cote] = round(marge / p, 2)
 
         return cotes
 

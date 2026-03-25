@@ -121,6 +121,15 @@ def calculer_fraction_adaptative(
     return round(fraction, 4)
 
 
+def calculer_mise_minimum_adaptative(bankroll: float) -> float:
+    """
+    Minimum de mise proportionnel à la bankroll.
+    1 % de la bankroll, planché à 1 € et plafonné à 10 €.
+    Évite le problème des petites bankrolls avec MISE_MINIMUM fixe.
+    """
+    return round(max(1.0, min(bankroll * 0.01, 10.0)), 2)
+
+
 def calculer_kelly_complet(
     probabilite: float,
     cote: float,
@@ -161,6 +170,7 @@ def calculer_kelly_complet(
     mise = calculer_mise_finale(
         kelly_fraction=kelly_avec_fraction,
         bankroll=bankroll,
+        mise_minimum=calculer_mise_minimum_adaptative(bankroll),
     )
 
     ev = (probabilite * cote) - 1.0

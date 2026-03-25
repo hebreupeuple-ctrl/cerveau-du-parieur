@@ -109,6 +109,7 @@ def analyser_match(
     probabilites_modele: dict,
     cotes_disponibles: dict,
     seuil_confiance: float = 0.60,
+    cotes_reelles: bool = True,
 ) -> list:
     """
     Analyse un match et retourne les opportunites de valeur.
@@ -119,17 +120,25 @@ def analyser_match(
     opportunites = []
 
     mapping_marches = {
+        "over15": {
+            "cote_key": "odds_over15",
+            "label": "Plus de 1.5 buts",
+        },
         "over25": {
             "cote_key": "odds_over25",
             "label": "Plus de 2.5 buts",
         },
+        "over35": {
+            "cote_key": "odds_over35",
+            "label": "Plus de 3.5 buts",
+        },
+        "over45": {
+            "cote_key": "odds_over45",
+            "label": "Plus de 4.5 buts",
+        },
         "btts": {
             "cote_key": "odds_btts_yes",
             "label": "Les deux equipes marquent",
-        },
-        "over15": {
-            "cote_key": "odds_over15",
-            "label": "Plus de 1.5 buts",
         },
         "over15_ht": {
             "cote_key": "odds_over15_ht",
@@ -150,8 +159,10 @@ def analyser_match(
     }
 
     prob_marche_modele = {
-        "over25":    probabilites_modele.get("prob_over25"),
         "over15":    probabilites_modele.get("prob_over15"),
+        "over25":    probabilites_modele.get("prob_over25"),
+        "over35":    probabilites_modele.get("prob_over35"),
+        "over45":    probabilites_modele.get("prob_over45"),
         "over15_ht": probabilites_modele.get("prob_over15_ht"),
         "btts":      probabilites_modele.get("prob_btts"),
         "1x2_home":  probabilites_modele.get("prob_home_win"),
@@ -169,6 +180,7 @@ def analyser_match(
         ("odds_over45",    "odds_under45"),
         ("odds_btts_yes",  "odds_btts_no"),
         ("odds_over15_ht", "odds_under15_ht"),
+        ("odds_home",      "odds_away"),  # correction 1x2 partielle si draw absent
     ]
     for cle_yes, cle_no in paires_binaires:
         c_yes = cotes_disponibles.get(cle_yes)
@@ -211,10 +223,14 @@ def analyser_match(
         ev = calculer_ev(prob_modele, cote_raw)
         edge = prob_modele - prob_bk_corrigee
 
+        # Sans cotes bookmaker réelles, l'edge est circulaire (on mesure
+        # l'écart contre notre propre modèle) : on ne l'applique pas.
+        seuil_edge_effectif = SEUIL_EDGE_MINIMUM if cotes_reelles else 0.0
         a_valeur = detecter_valeur(
             probabilite_modele=prob_modele,
             probabilite_bookmaker=prob_bk_corrigee,
             cote=cote_raw,
+            seuil_edge=seuil_edge_effectif,
         )
 
         if a_valeur:
