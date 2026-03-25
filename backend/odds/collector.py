@@ -49,22 +49,32 @@ class OddsCollector:
             except (TypeError, ValueError):
                 return None
 
+        def get_first(*keys):
+            """Retourne la première valeur non-None parmi les clés données."""
+            for k in keys:
+                v = safe_float(data.get(k))
+                if v is not None:
+                    return v
+            return None
+
         cotes = {
-            "odds_home": safe_float(data.get("odds_1")),
-            "odds_draw": safe_float(data.get("odds_x")),
-            "odds_away": safe_float(data.get("odds_2")),
-            "odds_over15": safe_float(data.get("odds_over15")),
-            "odds_under15": safe_float(data.get("odds_under15")),
-            "odds_over25": safe_float(data.get("odds_over25")),
-            "odds_under25": safe_float(data.get("odds_under25")),
-            "odds_over35": safe_float(data.get("odds_over35")),
-            "odds_under35": safe_float(data.get("odds_under35")),
-            "odds_over45": safe_float(data.get("odds_over45")),
-            "odds_under45": safe_float(data.get("odds_under45")),
-            "odds_btts_yes": safe_float(data.get("odds_btts_yes")),
-            "odds_btts_no": safe_float(data.get("odds_btts_no")),
-            "odds_over15_ht": safe_float(data.get("odds_over15_ht")),
-            "odds_under15_ht": safe_float(data.get("odds_under15_ht")),
+            # FootyStats utilise odds_ft_1/x/2 (nouveau) ou odds_1/x/2 (ancien)
+            "odds_home":      get_first("odds_ft_1", "odds_1"),
+            "odds_draw":      get_first("odds_ft_x", "odds_x"),
+            "odds_away":      get_first("odds_ft_2", "odds_2"),
+            "odds_over15":    get_first("odds_ft_over15", "odds_over15"),
+            "odds_under15":   get_first("odds_ft_under15", "odds_under15"),
+            "odds_over25":    get_first("odds_ft_over25", "odds_over25"),
+            "odds_under25":   get_first("odds_ft_under25", "odds_under25"),
+            "odds_over35":    get_first("odds_ft_over35", "odds_over35"),
+            "odds_under35":   get_first("odds_ft_under35", "odds_under35"),
+            "odds_over45":    get_first("odds_ft_over45", "odds_over45"),
+            "odds_under45":   get_first("odds_ft_under45", "odds_under45"),
+            "odds_btts_yes":  safe_float(data.get("odds_btts_yes")),
+            "odds_btts_no":   safe_float(data.get("odds_btts_no")),
+            # Mi-temps : odds_1st_half_over15 (nouveau) ou odds_over15_ht (ancien)
+            "odds_over15_ht": get_first("odds_1st_half_over15", "odds_over15_ht"),
+            "odds_under15_ht": get_first("odds_1st_half_under15", "odds_under15_ht"),
         }
         return {k: v for k, v in cotes.items() if v is not None}
 
