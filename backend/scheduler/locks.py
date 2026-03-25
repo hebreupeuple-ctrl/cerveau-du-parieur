@@ -28,9 +28,6 @@ class DistributedJobLockService:
         )
 
     def acquire(self, job_name: str) -> Optional[str]:
-        # Nettoyage opportuniste des locks expirés d'autres jobs
-        self.cleanup_expired_locks()
-
         token = secrets.token_hex(16)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=self.lease_seconds)
@@ -38,6 +35,13 @@ class DistributedJobLockService:
 
         try:
             conn.execute("BEGIN IMMEDIATE")
+
+            # Nettoyage atomique des locks expirés d'autres jobs (dans la même transaction)
+            conn.execute(
+                "DELETE FROM scheduler_locks WHERE lock_expires_at < ? AND job_name != ?",
+                (now.isoformat(), job_name),
+            )
+
             row = conn.execute(
                 """
                 SELECT lock_token, lock_expires_at

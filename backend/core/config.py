@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Backup
     BACKUP_DIR: str = "./data/backups"
 
+    # CORS
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+
     # Port
     PORT: int = 8000
 

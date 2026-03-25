@@ -2,6 +2,7 @@
 Routeur principal FastAPI.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,6 +22,18 @@ async def lifespan(app: FastAPI):
     from backend.database.connection import obtenir_connexion
     from backend.database.migrations import appliquer_migrations
     from backend.scheduler.runtime import AutomationScheduler
+
+    db_path = settings.DATABASE_PATH
+    db_exists = os.path.exists(db_path)
+    db_size = os.path.getsize(db_path) if db_exists else 0
+    logger.info_ctx(
+        "Volume persistant — vérification base de données",
+        context={
+            "path": db_path,
+            "exists": db_exists,
+            "size_bytes": db_size,
+        },
+    )
 
     conn = obtenir_connexion()
     appliquer_migrations(conn)
@@ -63,9 +76,14 @@ def creer_app(env: str = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    allowed_origins = [
+        o.strip()
+        for o in settings.ALLOWED_ORIGINS.split(",")
+        if o.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

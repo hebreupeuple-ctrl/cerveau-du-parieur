@@ -3,6 +3,9 @@ Taches d'automatisation du systeme.
 """
 
 import asyncio
+import glob
+import os
+import shutil
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -16,6 +19,47 @@ from backend.database.connection import creer_connexion
 from backend.features.pipeline import FeaturePipeline
 from backend.models.trainer import ModelTrainer
 from backend.odds.collector import OddsCollector
+
+from backend.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+async def sauvegarder_base_de_donnees() -> dict:
+    """
+    Copie cerveau.db dans BACKUP_DIR/cerveau_YYYYMMDD.db.
+    Conserve les 7 sauvegardes les plus récentes.
+    """
+    backup_dir = settings.BACKUP_DIR
+    os.makedirs(backup_dir, exist_ok=True)
+
+    source = settings.DATABASE_PATH
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    dest = os.path.join(backup_dir, f"cerveau_{date_str}.db")
+
+    try:
+        shutil.copy2(source, dest)
+    except Exception as exc:
+        logger.error_ctx(
+            "Echec sauvegarde base de donnees",
+            context={"dest": dest, "erreur": str(exc)},
+        )
+        return {"success": False, "error": str(exc)}
+
+    # Conserver uniquement les 7 sauvegardes les plus récentes
+    pattern = os.path.join(backup_dir, "cerveau_*.db")
+    backups = sorted(glob.glob(pattern))
+    for old in backups[:-7]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
+    logger.info_ctx(
+        "Sauvegarde base de donnees effectuee",
+        context={"dest": dest, "backups_conserves": min(len(backups), 7)},
+    )
+    return {"success": True, "path": dest}
 
 
 async def synchroniser_catalogue() -> dict:
@@ -490,8 +534,6 @@ def _backfill_features_historiques_sync(
     finally:
         conn.close()
 
-from backend.core.logging import get_logger as _get_logger
-_logger = _get_logger(__name__)
 
 
 def _determiner_resultat_marche(
@@ -657,7 +699,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
 
             except Exception as e:
                 erreurs += 1
-                _logger.error_ctx(
+                logger.error_ctx(
                     "Erreur auto-résolution pronostic placé",
                     context={"pronostic_id": p["id"], "erreur": str(e)},
                 )
@@ -685,7 +727,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
 
         conn.commit()
 
-        _logger.info_ctx(
+        logger.info_ctx(
             "Auto-résolution pronostics terminée",
             context={
                 "resolved": resolved,

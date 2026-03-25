@@ -8,6 +8,13 @@ import time
 from typing import Optional
 from backend.core.logging import get_logger
 from backend.database.connection import obtenir_connexion
+from backend.features.groups.forme import calculer_features_forme
+from backend.features.groups.h2h import calculer_features_h2h
+from backend.features.groups.contexte import calculer_features_contexte
+from backend.features.groups.ligue import calculer_features_ligue
+from backend.features.groups.classement import calculer_features_classement
+from backend.features.groups.shots_corners import calculer_features_shots_corners
+from backend.features.groups.arbitre import calculer_features_arbitre
 
 logger = get_logger(__name__)
 
@@ -38,14 +45,6 @@ class FeaturePipeline:
         max_time = match_timestamp - 3600
 
         try:
-            from backend.features.groups.forme import calculer_features_forme
-            from backend.features.groups.h2h import calculer_features_h2h
-            from backend.features.groups.contexte import calculer_features_contexte
-            from backend.features.groups.ligue import calculer_features_ligue
-            from backend.features.groups.classement import calculer_features_classement
-            from backend.features.groups.shots_corners import calculer_features_shots_corners
-            from backend.features.groups.arbitre import calculer_features_arbitre
-
             features = {"match_id": match_id, "max_time_used": max_time}
 
             # Groupe 1 — Forme récente

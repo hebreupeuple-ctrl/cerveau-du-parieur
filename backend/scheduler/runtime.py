@@ -16,6 +16,7 @@ from backend.scheduler.tasks.automation import (
     backfill_features_historiques,
     entrainer_modele,
     rafraichir_matchs_cotes_et_pronostics,
+    sauvegarder_base_de_donnees,
     synchroniser_catalogue_et_automatiser_si_necessaire,
 )
 
@@ -84,6 +85,17 @@ class AutomationScheduler:
                     )
                 )
             )
+
+        self._tasks.append(
+            asyncio.create_task(
+                self._boucle_job(
+                    "daily_backup",
+                    sauvegarder_base_de_donnees,
+                    24 * 3600,
+                    initial_delay_seconds=3600,
+                )
+            )
+        )
 
     async def stop(self) -> None:
         for task in self._tasks:
