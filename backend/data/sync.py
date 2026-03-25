@@ -106,16 +106,45 @@ async def synchroniser_ligues(
                 "priorite": LIGUES_PRIORITE.get(nom, 3),
             }
 
+        # Garde de sécurité : si l'API retourne 0 ligue (liste vide), c'est
+        # probablement une erreur réseau ou quota dépassé — on n'écrase pas la base.
+        # On tolère 1+ ligues : un compte FootyStats peut n'avoir qu'une seule ligue.
+        if len(ligues_footystats) == 0:
+            logger.warning_ctx(
+                "Sync ligues annulée : API a retourné 0 ligue (erreur réseau probable)",
+                context={"count": 0},
+            )
+            return {
+                "total_footystats": 0,
+                "ajoutees": 0, "mises_a_jour": 0,
+                "desactivees": 0, "saisons_modifiees": 0,
+                "catalogue_changed": False,
+                "erreur": "api_response_empty",
+            }
+
         ajoutees = 0
         mises_a_jour = 0
         desactivees = 0
         saisons_modifiees = 0
+        # Suivi des footystats_id actifs pour la désactivation
+        ids_footystats_actifs = set()
 
         for nom, info in ligues_footystats.items():
+            fs_id = info["league_footystats_id"]
+            ids_footystats_actifs.add(fs_id)
+
+            # Priorité 1 : match par footystats_id (stable même si le nom change)
             ligue_db = conn.execute(
-                "SELECT * FROM leagues WHERE name = ?",
-                (nom,),
+                "SELECT * FROM leagues WHERE footystats_id = ?",
+                (fs_id,),
             ).fetchone()
+
+            # Priorité 2 : match par nom (footystats_id a changé pour la même ligue)
+            if not ligue_db:
+                ligue_db = conn.execute(
+                    "SELECT * FROM leagues WHERE name = ?",
+                    (nom,),
+                ).fetchone()
 
             if not ligue_db:
                 cursor = conn.execute(
@@ -126,7 +155,7 @@ async def synchroniser_ligues(
                     ) VALUES (?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
-                        info["league_footystats_id"],
+                        fs_id,
                         nom,
                         info["country"],
                         1,
@@ -142,7 +171,6 @@ async def synchroniser_ligues(
                     info=info,
                 )
                 saisons_modifiees += 1
-
                 ajoutees += 1
                 logger.info_ctx(
                     "Nouvelle ligue ajoutée",
@@ -151,7 +179,8 @@ async def synchroniser_ligues(
             else:
                 nouveau_groupe = _determiner_groupe(nom)
                 ligue_changee = any([
-                    ligue_db["footystats_id"] != info["league_footystats_id"],
+                    ligue_db["footystats_id"] != fs_id,
+                    ligue_db["name"] != nom,
                     ligue_db["country"] != info["country"],
                     ligue_db["priority"] != info["priorite"],
                     ligue_db["group_type"] != nouveau_groupe,
@@ -163,21 +192,28 @@ async def synchroniser_ligues(
                         """
                         UPDATE leagues SET
                             footystats_id = ?,
+                            name = ?,
                             country = ?,
                             group_type = ?,
                             is_active = 1,
                             priority = ?,
                             updated_at = datetime('now')
-                        WHERE name = ?
+                        WHERE id = ?
                         """,
                         (
-                            info["league_footystats_id"],
+                            fs_id,
+                            nom,
                             info["country"],
                             nouveau_groupe,
                             info["priorite"],
-                            nom,
+                            ligue_db["id"],
                         ),
                     )
+                    if ligue_db["name"] != nom:
+                        logger.info_ctx(
+                            "Ligue renommée",
+                            context={"ancien": ligue_db["name"], "nouveau": nom},
+                        )
                     mises_a_jour += 1
 
                 saison_modifiee = await _synchroniser_saison(
@@ -188,23 +224,23 @@ async def synchroniser_ligues(
                 if saison_modifiee:
                     saisons_modifiees += 1
 
+        # Désactivation : seulement les ligues dont le footystats_id
+        # n'apparaît plus dans la réponse API
         ligues_actives_db = conn.execute(
-            "SELECT name FROM leagues WHERE is_active = 1"
+            "SELECT id, name, footystats_id FROM leagues WHERE is_active = 1"
         ).fetchall()
 
-        noms_actifs_db = {row["name"] for row in ligues_actives_db}
-        noms_footystats = set(ligues_footystats.keys())
-
-        for nom_a_desactiver in noms_actifs_db - noms_footystats:
-            conn.execute(
-                "UPDATE leagues SET is_active = 0 WHERE name = ?",
-                (nom_a_desactiver,),
-            )
-            desactivees += 1
-            logger.info_ctx(
-                "Ligue désactivée",
-                context={"ligue": nom_a_desactiver},
-            )
+        for ligue in ligues_actives_db:
+            if ligue["footystats_id"] not in ids_footystats_actifs:
+                conn.execute(
+                    "UPDATE leagues SET is_active = 0 WHERE id = ?",
+                    (ligue["id"],),
+                )
+                desactivees += 1
+                logger.info_ctx(
+                    "Ligue désactivée (absente de l'API)",
+                    context={"ligue": ligue["name"], "footystats_id": ligue["footystats_id"]},
+                )
 
         conn.commit()
 

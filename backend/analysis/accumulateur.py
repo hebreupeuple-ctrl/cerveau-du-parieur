@@ -368,12 +368,16 @@ class GenerateurPronostics:
         return tous_pronostics[:max_pronostics]
 
     def _obtenir_leagues_autorisees(self, user_id: int) -> set[int]:
+        # Joint leagues pour exclure les ligues désactivées même si
+        # user_leagues.is_active = 1 (cas d'une ligue supprimée du compte FootyStats)
         rows = self.conn.execute(
             """
-            SELECT league_id
-            FROM user_leagues
-            WHERE user_id = ?
-            AND is_active = 1
+            SELECT ul.league_id
+            FROM user_leagues ul
+            JOIN leagues l ON ul.league_id = l.id
+            WHERE ul.user_id = ?
+            AND ul.is_active = 1
+            AND l.is_active = 1
             """,
             (user_id,),
         ).fetchall()

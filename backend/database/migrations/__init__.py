@@ -96,6 +96,10 @@ def appliquer_migrations(
         appliquer as migration_010,
         DESCRIPTION as DESC_010,
     )
+    from backend.database.migrations.migration_011 import (
+        appliquer as migration_011,
+        DESCRIPTION as DESC_011,
+    )
 
     if conn is None:
         conn = obtenir_connexion()
@@ -117,6 +121,7 @@ def appliquer_migrations(
         (8, migration_008, "Contrainte UNIQUE sur odds(match_id, bookmaker)"),
         (9, migration_009, DESC_009),
         (10, migration_010, DESC_010),
+        (11, migration_011, DESC_011),
     ]
 
     for version, migration_fn, description in migrations:
