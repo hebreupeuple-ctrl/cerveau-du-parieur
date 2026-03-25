@@ -118,9 +118,10 @@ FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTE
 MARCHES = {
     "over15":    "over15",
     "over25":    "over25",
-    "over35":    "over35",
     "btts":      "btts",
     "over15_ht": None,  # calculé à la volée depuis home_goals_ht + away_goals_ht
+    # over35 : colonne présente en DB mais toujours NULL (API ne remplit pas ce champ)
+    # → retiré jusqu'à ce que les données soient disponibles
 }
 
 
@@ -226,6 +227,7 @@ class ModelTrainer:
             f"""
             SELECT
                 {colonnes_sql},
+                m.over15,
                 m.over25,
                 m.btts,
                 m.home_goals_ht,
@@ -269,7 +271,6 @@ class ModelTrainer:
             X.append(features)
             labels["over15"].append(int(row["over15"] or 0))
             labels["over25"].append(int(row["over25"] or 0))
-            labels["over35"].append(int(row["over35"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
             # over15_ht : calculé à partir des buts de mi-temps
             hg_ht = row["home_goals_ht"]
