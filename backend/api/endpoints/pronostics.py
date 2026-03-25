@@ -413,6 +413,158 @@ async def resoudre_pronostic(
     })
 
 
+@router.get("/history")
+async def historique_pronostics(
+    status: str = None,
+    page: int = 1,
+    limit: int = 20,
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """
+    Retourne l'historique des pronostics de l'utilisateur.
+    status: filtre optionnel (won|lost|placed|pending|ignored|void)
+    """
+    MARKET_LABELS = {
+        "over15":    "Plus de 1.5 buts",
+        "over25":    "Plus de 2.5 buts",
+        "over35":    "Plus de 3.5 buts",
+        "over45":    "Plus de 4.5 buts",
+        "btts":      "Les deux équipes marquent",
+        "over15_ht": "Plus de 1.5 buts (MT)",
+        "1x2_home":  "Victoire domicile",
+        "1x2_draw":  "Match nul",
+        "1x2_away":  "Victoire extérieur",
+    }
+
+    offset = (page - 1) * limit
+
+    # Construire la clause WHERE selon le filtre
+    if status == "en_cours":
+        status_clause = "AND p.status IN ('pending', 'placed')"
+        params_status = []
+    elif status and status in ("won", "lost", "void", "placed", "pending", "ignored"):
+        status_clause = "AND p.status = ?"
+        params_status = [status]
+    else:
+        status_clause = ""
+        params_status = []
+
+    params = [current_user["id"]] + params_status
+
+    total = conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM pronostics p
+        WHERE p.user_id = ?
+        {status_clause}
+        """,
+        params,
+    ).fetchone()[0]
+
+    rows = conn.execute(
+        f"""
+        SELECT p.*,
+               m.match_timestamp, m.home_goals, m.away_goals, m.status as match_status,
+               t1.name as home_team, t2.name as away_team,
+               l.name as league_name
+        FROM pronostics p
+        JOIN matches m ON p.match_id = m.id
+        JOIN teams t1 ON m.home_team_id = t1.id
+        JOIN teams t2 ON m.away_team_id = t2.id
+        JOIN leagues l ON m.league_id = l.id
+        WHERE p.user_id = ?
+        {status_clause}
+        ORDER BY p.recommended_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    ).fetchall()
+
+    # Stats globales (tous statuts confondus)
+    stats = conn.execute(
+        """
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN p.status = 'won' THEN 1 ELSE 0 END) as won,
+            SUM(CASE WHEN p.status = 'lost' THEN 1 ELSE 0 END) as lost,
+            SUM(CASE WHEN p.status IN ('placed', 'pending') THEN 1 ELSE 0 END) as en_cours,
+            SUM(CASE WHEN p.status = 'void' THEN 1 ELSE 0 END) as void,
+            SUM(CASE WHEN p.status IN ('won', 'lost') THEN p.actual_profit ELSE 0 END) as profit_total,
+            SUM(CASE WHEN p.status IN ('won', 'lost', 'void') THEN p.actual_stake ELSE 0 END) as mises_totales
+        FROM pronostics p
+        WHERE p.user_id = ?
+        """,
+        (current_user["id"],),
+    ).fetchone()
+
+    win_rate = None
+    if stats["won"] is not None and stats["lost"] is not None:
+        resolved = (stats["won"] or 0) + (stats["lost"] or 0)
+        if resolved > 0:
+            win_rate = round((stats["won"] or 0) / resolved, 4)
+
+    roi = None
+    mises = stats["mises_totales"] or 0
+    profit = stats["profit_total"] or 0
+    if mises > 0:
+        roi = round(profit / mises, 4)
+
+    items = []
+    for p in rows:
+        item = {
+            "id": p["id"],
+            "match": {
+                "id": p["match_id"],
+                "home_team": p["home_team"],
+                "away_team": p["away_team"],
+                "league": p["league_name"],
+                "kickoff_timestamp": p["match_timestamp"],
+                "score": (
+                    f"{p['home_goals']}-{p['away_goals']}"
+                    if p["home_goals"] is not None and p["away_goals"] is not None
+                    else None
+                ),
+            },
+            "market": p["market"],
+            "market_label": MARKET_LABELS.get(p["market"], p["market"]),
+            "status": p["status"],
+            "confidence_score": p["confidence_score"],
+            "model_probability": p["model_probability"],
+            "reference_odds": p["reference_odds"],
+            "recommended_stake": p["recommended_stake"],
+            "actual_stake": p["actual_stake"],
+            "actual_odds": p["actual_odds"],
+            "actual_profit": p["actual_profit"],
+            "expected_value": p["expected_value"],
+            "recommended_at": p["recommended_at"],
+            "placed_at": p["placed_at"],
+            "resolved_at": p["resolved_at"],
+        }
+        items.append(item)
+
+    return reponse_succes({
+        "items": items,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": (total + limit - 1) // limit if total > 0 else 1,
+        },
+        "stats": {
+            "total": stats["total"] or 0,
+            "won": stats["won"] or 0,
+            "lost": stats["lost"] or 0,
+            "en_cours": stats["en_cours"] or 0,
+            "void": stats["void"] or 0,
+            "profit_total": round(profit, 2),
+            "mises_totales": round(mises, 2),
+            "win_rate": win_rate,
+            "roi": roi,
+        },
+    })
+
+
 class IgnoreRequest(BaseModel):
     reason: str = None
 

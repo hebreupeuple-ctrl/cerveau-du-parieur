@@ -18,6 +18,10 @@ def calculer_features_shots_corners(
     """
     Retourne les features physiques pour une équipe.
     Préfixe home_ ou away_ appliqué par le pipeline.
+
+    Retourne None pour les stats physiques quand aucune donnée de tirs/corners
+    n'est disponible dans les matchs récents (ligue sans ces statistiques).
+    Le pipeline stockera alors NULL en base, et le flag has_physical_data sera 0.
     """
     matchs = _recuperer_matchs(conn, team_id, max_time)
     matchs_5 = matchs[:5]
@@ -26,6 +30,10 @@ def calculer_features_shots_corners(
     shots_ot = _moyenne_stat(matchs_5, team_id, max_time, "shots_on_target")
     buts = _moyenne_buts(matchs_5, team_id, max_time)
 
+    # Dériver conversion/efficiency seulement si leurs inputs sont disponibles
+    conversion = round(buts / shots_ot, 3) if shots_ot is not None and shots_ot > 0 else None
+    shot_eff = round(shots_ot / shots, 3) if shots is not None and shots > 0 else None
+
     features = {
         "shots_avg_5m":            shots,
         "shots_on_target_avg_5m":  shots_ot,
@@ -33,8 +41,9 @@ def calculer_features_shots_corners(
         "possession_avg_5m":       _moyenne_stat(matchs_5, team_id, max_time, "possession"),
         "goals_ht_avg_5m":         _moyenne_stat(matchs_5, team_id, max_time, "goals_ht"),
         "over15_ht_rate_5m":       _taux_over15_ht(matchs_5, team_id),
-        "conversion_rate_5m":      round(buts / shots_ot, 3) if shots_ot > 0 else 0.0,
-        "shot_efficiency_5m":      round(shots_ot / shots, 3) if shots > 0 else 0.0,
+        "conversion_rate_5m":      conversion,
+        "shot_efficiency_5m":      shot_eff,
+        # Fatigue calculée indépendamment (basée sur timestamps, toujours disponible)
         "fatigue_score":           _calculer_fatigue(conn, team_id, max_time),
     }
 
@@ -82,9 +91,14 @@ def _moyenne_stat(
     team_id: int,
     max_time: int,
     stat: str,
-) -> float:
+) -> float | None:
+    """
+    Retourne la moyenne pondérée de la stat sur les matchs fournis.
+    Retourne None (pas 0.0) quand aucune donnée n'est disponible,
+    pour distinguer "donnée absente" de "vraiment 0".
+    """
     if not matchs:
-        return 0.0
+        return None
     total = 0.0
     poids_total = 0.0
     for m in matchs:
@@ -110,7 +124,7 @@ def _moyenne_stat(
             poids_total += poids
 
     if poids_total == 0:
-        return 0.0
+        return None
     return round(total / poids_total, 3)
 
 
@@ -132,9 +146,13 @@ def _moyenne_buts(matchs: list, team_id: int, max_time: int) -> float:
     return total / poids_total
 
 
-def _taux_over15_ht(matchs: list, team_id: int) -> float:
+def _taux_over15_ht(matchs: list, team_id: int) -> float | None:
+    """
+    Retourne None si aucun match avec données HT disponible
+    (cohérent avec le retour None des autres stats physiques).
+    """
     if not matchs:
-        return 0.0
+        return None
     count = 0
     valides = 0
     for m in matchs:
@@ -145,7 +163,7 @@ def _taux_over15_ht(matchs: list, team_id: int) -> float:
             if (hg_ht + ag_ht) > 1:
                 count += 1
     if valides == 0:
-        return 0.0
+        return None
     return round(count / valides, 3)
 
 

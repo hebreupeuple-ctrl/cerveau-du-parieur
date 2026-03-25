@@ -20,6 +20,7 @@ from backend.models.algorithms.ensemble.meta_model import MetaModel
 
 logger = get_logger(__name__)
 
+# Colonnes lues depuis la base de données
 FEATURES_COLONNES = [
     # Forme récente (buts, taux, points)
     "home_goals_scored_3m", "home_goals_scored_5m",
@@ -58,7 +59,8 @@ FEATURES_COLONNES = [
     "league_goals_avg", "league_btts_rate",
     "league_over25_rate", "league_volatility",
     "match_importance_score", "game_week_normalized",
-    # Tirs, corners, possession (physique)
+    # Tirs, corners, possession (physique — absents pour 83% des matchs)
+    # Le flag has_physical_data (ci-dessous) indique leur disponibilité réelle
     "home_shots_avg_5m", "home_shots_on_target_avg_5m",
     "home_corners_avg_5m", "home_possession_avg_5m",
     "home_conversion_rate_5m", "home_shot_efficiency_5m",
@@ -69,15 +71,125 @@ FEATURES_COLONNES = [
     "away_conversion_rate_5m", "away_shot_efficiency_5m",
     "away_goals_ht_avg_5m", "away_over15_ht_rate_5m",
     "away_fatigue_score",
-    # Arbitre
-    "referee_avg_goals", "referee_home_bias", "referee_goals_volatility",
+    # Arbitre supprimé : 100% NULL en base — ne contribuait qu'au bruit
 ]
+
+# Feature virtuelle calculée (pas une colonne DB) : ajoutée après la boucle FEATURES_COLONNES
+# Vaut 1 quand les données physiques (tirs/corners/possession) sont disponibles, 0 sinon.
+# Permet au modèle de pondérer correctement les features physiques imputées.
+FEATURE_VIRTUELLE_PHYSIQUE = "has_physical_data"
+
+# Features d'interaction (dérivées de combinaisons de features existantes).
+# Ces features capturent directement la dynamique match-niveau (attaque A × défense B)
+# qui est le signal le plus prédictif pour les marchés over/btts.
+FEATURES_INTERACTION = [
+    # xG total attendu pour le match (meilleur prédicteur direct d'over 2.5)
+    "match_xg_total",
+    # Proxy buts attendus domicile : moyenne de l'attaque home et de la défense away
+    "home_expected_goals_proxy",
+    # Proxy buts attendus extérieur : moyenne de l'attaque away et de la défense home
+    "away_expected_goals_proxy",
+    # Total attendu via buts (indépendant du xG, plus robuste pour les ligues sans xG)
+    "match_goals_proxy",
+    # Probabilité over25 combinée des deux équipes (produit des taux individuels)
+    "over25_probability_product",
+    # Probabilité BTTS combinée (produit des taux de scoring des deux équipes)
+    "btts_probability_product",
+    # ── Normalisation par la moyenne de ligue ──────────────────────────────
+    # Ces features mesurent la PERFORMANCE RELATIVE de chaque équipe vs sa ligue.
+    # Sans normalisation, "2 buts/match" en PL ≠ "2 buts/match" en D3 → bruit pur.
+    # Performance offensive home vs moyenne de ligue (>1 = meilleure que moyenne)
+    "home_attack_vs_league",
+    # Performance défensive away vs moyenne de ligue (<1 = meilleure que moyenne)
+    "away_defense_vs_league",
+    # Performance offensive away vs moyenne de ligue
+    "away_attack_vs_league",
+    # Performance défensive home vs moyenne de ligue
+    "home_defense_vs_league",
+    # Taux over25 home vs taux de ligue (positif = équipe sur-performe la ligue)
+    "home_over25_vs_league",
+    # Taux over25 away vs taux de ligue
+    "away_over25_vs_league",
+]
+
+# Noms complets des features utilisées par le modèle (DB + virtuelles + interactions)
+FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTERACTION
 
 MARCHES = {
     "over25":   "over25",
     "btts":     "btts",
     "over15_ht": None,  # calculé à la volée depuis home_goals_ht + away_goals_ht
 }
+
+
+def _calculer_features_interaction(features_dict: dict) -> list:
+    """
+    Calcule les features d'interaction à partir du dictionnaire de features brutes.
+    Ces features capturent directement la dynamique match-niveau.
+    Retourne une liste de valeurs dans l'ordre de FEATURES_INTERACTION.
+    """
+    def safe(key: str, default: float = 0.0) -> float:
+        v = features_dict.get(key)
+        return float(v) if v is not None else default
+
+    home_xg_gen  = safe("home_xg_generated_5m")
+    away_xg_gen  = safe("away_xg_generated_5m")
+    home_goals_s = safe("home_goals_scored_5m")
+    away_goals_s = safe("away_goals_scored_5m")
+    home_goals_c = safe("home_goals_conceded_5m")
+    away_goals_c = safe("away_goals_conceded_5m")
+    home_o25     = safe("home_over25_rate_5m")
+    away_o25     = safe("away_over25_rate_5m")
+    home_btts    = safe("home_btts_rate_5m")
+    away_btts    = safe("away_btts_rate_5m")
+    league_avg   = safe("league_goals_avg", default=2.5)
+    league_o25   = safe("league_over25_rate", default=0.489)
+
+    # xG total du match
+    match_xg_total = round(home_xg_gen + away_xg_gen, 3)
+
+    # Proxy buts attendus home : moyenne entre "ce que home marque" et "ce qu'away concède"
+    home_expected = round((home_goals_s + away_goals_c) / 2, 3)
+
+    # Proxy buts attendus away : moyenne entre "ce qu'away marque" et "ce que home concède"
+    away_expected = round((away_goals_s + home_goals_c) / 2, 3)
+
+    # Total buts attendus via forme
+    match_goals_proxy = round(home_expected + away_expected, 3)
+
+    # Produit des taux over25 des deux équipes
+    over25_product = round(home_o25 * away_o25, 4)
+
+    # Produit des taux btts
+    btts_product = round(home_btts * away_btts, 4)
+
+    # ── Normalisation par la ligue ────────────────────────────────────────
+    # Diviser par la moyenne de ligue (demi-buts par équipe ≈ league_avg/2)
+    # Garantit que "2 buts/match en PL" et "2 buts/match en D3" signifient la même chose.
+    half_league = league_avg / 2 if league_avg > 0 else 1.25
+
+    home_attack_vs_league  = round(home_goals_s / half_league, 3) if half_league > 0 else 1.0
+    away_defense_vs_league = round(away_goals_c / half_league, 3) if half_league > 0 else 1.0
+    away_attack_vs_league  = round(away_goals_s / half_league, 3) if half_league > 0 else 1.0
+    home_defense_vs_league = round(home_goals_c / half_league, 3) if half_league > 0 else 1.0
+
+    home_o25_vs_league = round(home_o25 - league_o25, 3)
+    away_o25_vs_league = round(away_o25 - league_o25, 3)
+
+    return [
+        match_xg_total,
+        home_expected,
+        away_expected,
+        match_goals_proxy,
+        over25_product,
+        btts_product,
+        home_attack_vs_league,
+        away_defense_vs_league,
+        away_attack_vs_league,
+        home_defense_vs_league,
+        home_o25_vs_league,
+        away_o25_vs_league,
+    ]
 
 
 class ModelTrainer:
@@ -131,6 +243,15 @@ class ModelTrainer:
                 val = row[col]
                 features.append(float(val) if val is not None else np.nan)
 
+            # Feature virtuelle : 1 si données physiques disponibles, 0 sinon.
+            # Calculée AVANT imputation pour capturer la vraie disponibilité.
+            has_physical = 1.0 if row["home_shots_avg_5m"] is not None else 0.0
+            features.append(has_physical)
+
+            # Features d'interaction (calculées depuis les valeurs brutes pré-imputation)
+            row_dict = {col: row[col] for col in FEATURES_COLONNES}
+            features.extend(_calculer_features_interaction(row_dict))
+
             X.append(features)
             labels["over25"].append(int(row["over25"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
@@ -159,7 +280,7 @@ class ModelTrainer:
             "Données chargées",
             context={
                 "n_matchs": len(X),
-                "n_features": len(FEATURES_COLONNES),
+                "n_features": len(FEATURES_NOMS),
             },
         )
 
@@ -244,7 +365,7 @@ class ModelTrainer:
             "random_forest": rf,
             "logistic_regression": lr,
             "meta": meta,
-            "features": FEATURES_COLONNES,
+            "features": FEATURES_NOMS,
         }
 
         logger.info_ctx(
@@ -307,6 +428,13 @@ class ModelTrainer:
             float(features[col]) if features.get(col) is not None else np.nan
             for col in FEATURES_COLONNES
         ]
+        # Feature virtuelle : calculée AVANT imputation (même logique qu'à l'entraînement)
+        has_physical = 1.0 if features.get("home_shots_avg_5m") is not None else 0.0
+        raw.append(has_physical)
+
+        # Features d'interaction : calculées depuis les valeurs brutes pré-imputation
+        raw.extend(_calculer_features_interaction(features))
+
         X = np.array([raw], dtype=np.float32)
 
         # Imputation par médianes apprises à l'entraînement
@@ -458,7 +586,7 @@ class ModelTrainer:
                 self.feature_medians = None
 
             # Vérifier que le modèle correspond au nombre de features attendu
-            n_attendu = len(FEATURES_COLONNES)
+            n_attendu = len(FEATURES_NOMS)
             n_modele = None
             for ensemble in self.modeles.values():
                 feats = ensemble.get("features")
@@ -566,7 +694,7 @@ class ModelTrainer:
                 btts.get("log_loss"),
                 over25.get("auc_roc"),
                 btts.get("auc_roc"),
-                json.dumps(FEATURES_COLONNES, ensure_ascii=False),
+                json.dumps(FEATURES_NOMS, ensure_ascii=False),
                 artifact_path,
                 1 if activer else 0,
             ),

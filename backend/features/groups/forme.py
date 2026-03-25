@@ -120,7 +120,8 @@ def _moyenne_xg_genere(matchs: list, team_id: int) -> float:
     for m in matchs:
         est_dom = m["home_team_id"] == team_id
         xg = m["home_xg"] if est_dom else m["away_xg"]
-        if xg is not None:
+        # xg=0 signifie "données non disponibles" dans FootyStats (impossible d'avoir 0 xG)
+        if xg is not None and float(xg) > 0:
             valeurs.append(float(xg))
     if not valeurs:
         return 0.0
@@ -134,7 +135,8 @@ def _moyenne_xg_concede(matchs: list, team_id: int) -> float:
     for m in matchs:
         est_dom = m["home_team_id"] == team_id
         xg = m["away_xg"] if est_dom else m["home_xg"]
-        if xg is not None:
+        # xg=0 signifie "données non disponibles" dans FootyStats
+        if xg is not None and float(xg) > 0:
             valeurs.append(float(xg))
     if not valeurs:
         return 0.0

@@ -30,11 +30,15 @@ class XGBoostPredictor:
             scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
 
             self.modele = xgb.XGBClassifier(
-                n_estimators=200,
-                max_depth=5,
-                learning_rate=0.05,
-                subsample=0.8,
-                colsample_bytree=0.8,
+                n_estimators=500,
+                max_depth=4,          # réduit de 5 → 4 pour limiter l'overfitting
+                learning_rate=0.03,   # plus lent = plus stable
+                subsample=0.75,
+                colsample_bytree=0.65,  # réduit pour moins de features par arbre
+                min_child_weight=10,  # exige plus d'échantillons par feuille
+                gamma=0.1,            # pénalité sur les splits peu informatifs
+                reg_alpha=0.05,       # L1 regularization
+                reg_lambda=1.5,       # L2 regularization (renforcée)
                 scale_pos_weight=scale_pos_weight,
                 use_label_encoder=False,
                 eval_metric="logloss",
