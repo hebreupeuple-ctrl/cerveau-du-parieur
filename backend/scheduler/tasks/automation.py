@@ -800,7 +800,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
             JOIN matches m ON p.match_id = m.id
             WHERE p.status IN ('won', 'lost')
             AND p.resolved_at IS NOT NULL
-            AND p.resolved_at > datetime('now', '-72 hours')
+            AND p.resolved_at > datetime('now', '-24 hours')
             AND m.home_goals IS NOT NULL
             AND m.away_goals IS NOT NULL
             AND datetime(m.updated_at) > datetime(p.resolved_at)
