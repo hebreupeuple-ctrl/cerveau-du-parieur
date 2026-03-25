@@ -227,6 +227,7 @@ export default function Aujourd_hui() {
 
   const pronostics = data?.pronostics || []
   const bankroll = data?.bankroll_summary?.current || 150
+  const prochainMatch = data?.prochain_match
 
   return (
     <div style={{ padding: '16px' }}>
@@ -326,22 +327,25 @@ export default function Aujourd_hui() {
         <>
           <EmptyState
             icon={Moon}
-            title="Trêve internationale"
-            message="Aucun match de nos ligues principales cette semaine. Les prochains pronostics arrivent le 3 avril."
+            title="Aucun match aujourd'hui"
+            message="Pas de match de nos ligues suivies pour le moment."
           />
-          <Card style={{ marginTop: '16px', backgroundColor: '#1A2535' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <AlertCircle size={16} color="#2563EB" style={{ marginTop: '1px', flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: '13px', color: '#A0A0A0', lineHeight: '1.5' }}>
-                  Le système analyse en continu les 6 grandes ligues. Pendant la trêve, les pronostics sont suspendus pour garantir la qualité.
-                </p>
-                <p style={{ fontSize: '12px', color: '#666666', marginTop: '8px' }}>
-                  Prochain match : PSG vs Toulouse le 3 avril
-                </p>
+          {prochainMatch && (
+            <Card style={{ marginTop: '16px', backgroundColor: '#1A2535' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <AlertCircle size={16} color="#2563EB" style={{ marginTop: '1px', flexShrink: 0 }} />
+                <div>
+                  <p style={{ fontSize: '13px', color: '#A0A0A0', lineHeight: '1.5' }}>
+                    Le système surveille en continu les prochains matchs.
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#666666', marginTop: '8px' }}>
+                    Prochain match : {prochainMatch.home} vs {prochainMatch.away} le{' '}
+                    {new Date(prochainMatch.timestamp * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+                  </p>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
         </>
       ) : (
         <>

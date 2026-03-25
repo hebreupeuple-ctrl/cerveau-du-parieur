@@ -57,13 +57,17 @@ async def pronostics_du_jour(
     conn: sqlite3.Connection = Depends(get_db),
 ):
     maintenant = int(time.time())
-    dans_48h = maintenant + (48 * 3600)
+    # Fin du jour courant en UTC (minuit prochain)
+    now_dt = datetime.now(timezone.utc)
+    fin_du_jour = int(
+        now_dt.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
+    )
 
     pronostics_db = _charger_pronostics_pending(
         conn,
         current_user["id"],
         maintenant,
-        dans_48h,
+        fin_du_jour,
     )
 
     if not pronostics_db:
@@ -75,7 +79,7 @@ async def pronostics_du_jour(
             WHERE p.user_id = ?
             AND m.match_timestamp BETWEEN ? AND ?
             """,
-            (current_user["id"], maintenant, dans_48h),
+            (current_user["id"], maintenant, fin_du_jour),
         ).fetchone()[0]
 
         if existing_window_count == 0:
@@ -108,7 +112,7 @@ async def pronostics_du_jour(
                         conn,
                         current_user["id"],
                         maintenant,
-                        dans_48h,
+                        fin_du_jour,
                     )
 
     pronostics_formatted = []
@@ -136,9 +140,31 @@ async def pronostics_du_jour(
             "status": p["status"],
         })
 
+    prochain_match = None
+    if not pronostics_formatted:
+        row = conn.execute(
+            """
+            SELECT m.match_timestamp, t1.name AS home, t2.name AS away
+            FROM matches m
+            JOIN teams t1 ON m.home_team_id = t1.id
+            JOIN teams t2 ON m.away_team_id = t2.id
+            WHERE m.status = 'upcoming' AND m.match_timestamp > ?
+            ORDER BY m.match_timestamp ASC
+            LIMIT 1
+            """,
+            (maintenant,),
+        ).fetchone()
+        if row:
+            prochain_match = {
+                "home": row["home"],
+                "away": row["away"],
+                "timestamp": row["match_timestamp"],
+            }
+
     return reponse_succes({
         "system_mode": current_user["system_mode"],
         "pronostics": pronostics_formatted,
+        "prochain_match": prochain_match,
         "combine_recommendation": None,
         "bankroll_summary": {
             "current": current_user["current_bankroll"],
