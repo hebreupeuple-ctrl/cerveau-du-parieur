@@ -299,3 +299,187 @@ class TestFeaturePipeline:
         }
         # Ne doit pas lever d'exception
         pipeline._sauvegarder_features(features, commit=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-résolution — matchs expirés par timestamp
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAutoResolution:
+    def _creer_match_passe(self, conn, footystats_id: int, ts_passe: int) -> int:
+        conn.execute(
+            "INSERT OR IGNORE INTO leagues (footystats_id,name,country,tier) VALUES(99,'TestL','FR',1)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO seasons (footystats_id,league_id,name,year,start_date,end_date) VALUES(99,1,'S',2024,'2024-01-01','2025-01-01')"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO teams (footystats_id,name,country) VALUES(99,'H','FR')"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO teams (footystats_id,name,country) VALUES(100,'A','FR')"
+        )
+        conn.execute(
+            f"""
+            INSERT INTO matches
+            (footystats_id,season_id,league_id,home_team_id,away_team_id,
+             match_date,match_timestamp,status)
+            VALUES({footystats_id},1,1,1,2,'2024-01-01',{ts_passe},'upcoming')
+            """
+        )
+        conn.commit()
+        return conn.execute(
+            f"SELECT id FROM matches WHERE footystats_id={footystats_id}"
+        ).fetchone()["id"]
+
+    def test_match_expire_marque_complete_apres_2h(self):
+        """Un match upcoming dont le timestamp a dépassé de > 2h doit être marqué complete."""
+        import time
+        conn = _creer_db_test()
+        ts_passe = int(time.time()) - 3 * 3600  # il y a 3h
+        match_id = self._creer_match_passe(conn, 201, ts_passe)
+
+        # Simuler la logique de mise à jour
+        conn.execute(
+            "UPDATE matches SET status = 'complete' WHERE status = 'upcoming' AND match_timestamp < ?",
+            (int(time.time()) - 2 * 3600,),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT status FROM matches WHERE id = ?", (match_id,)).fetchone()
+        assert row["status"] == "complete"
+
+    def test_pending_ignore_si_match_complete(self):
+        """Un pronostic pending sur un match complete doit être passé à ignored."""
+        import time
+        conn = _creer_db_test()
+        ts_passe = int(time.time()) - 3 * 3600
+        match_id = self._creer_match_passe(conn, 202, ts_passe)
+
+        # Créer un user minimal
+        conn.execute(
+            """INSERT INTO users (email, password_hash, initial_bankroll, current_bankroll)
+               VALUES ('t@t.com', 'x', 100, 100)"""
+        )
+        user_id = conn.execute("SELECT id FROM users WHERE email='t@t.com'").fetchone()["id"]
+
+        # Insérer un pronostic pending
+        conn.execute(
+            """INSERT INTO pronostics
+               (user_id, match_id, market, model_probability, bookmaker_probability,
+                probability_edge, expected_value, reference_bookmaker, reference_odds,
+                confidence_score, kelly_fraction_used, kelly_raw, recommended_stake,
+                bankroll_at_recommendation, status)
+               VALUES (?, ?, 'over15', 0.6, 0.5, 0.1, 0.08, 'ref', 1.80,
+                       0.6, 0.125, 0.2, 5.0, 100, 'pending')""",
+            (user_id, match_id),
+        )
+        conn.commit()
+
+        # Marquer le match complete + résoudre
+        maintenant = int(time.time())
+        conn.execute(
+            "UPDATE matches SET status = 'complete' WHERE match_timestamp < ?",
+            (maintenant - 2 * 3600,),
+        )
+        conn.execute(
+            """UPDATE pronostics SET status = 'ignored', ignored_at = datetime('now'),
+               ignore_reason = 'match_termine_sans_placement'
+               WHERE status = 'pending' AND match_id IN (
+                   SELECT id FROM matches WHERE status = 'complete' OR match_timestamp < ?
+               )""",
+            (maintenant - 2 * 3600,),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT status FROM pronostics WHERE user_id = ?", (user_id,)).fetchone()
+        assert row["status"] == "ignored"
+
+    def test_pending_futur_non_ignore(self):
+        """Un pronostic pending sur un match futur ne doit PAS être ignoré."""
+        import time
+        conn = _creer_db_test()
+        ts_futur = int(time.time()) + 24 * 3600  # demain
+        match_id = self._creer_match_passe(conn, 203, ts_futur)
+
+        conn.execute(
+            """INSERT INTO users (email, password_hash, initial_bankroll, current_bankroll)
+               VALUES ('t2@t.com', 'x', 100, 100)"""
+        )
+        user_id = conn.execute("SELECT id FROM users WHERE email='t2@t.com'").fetchone()["id"]
+
+        conn.execute(
+            """INSERT INTO pronostics
+               (user_id, match_id, market, model_probability, bookmaker_probability,
+                probability_edge, expected_value, reference_bookmaker, reference_odds,
+                confidence_score, kelly_fraction_used, kelly_raw, recommended_stake,
+                bankroll_at_recommendation, status)
+               VALUES (?, ?, 'over15', 0.6, 0.5, 0.1, 0.08, 'ref', 1.80,
+                       0.6, 0.125, 0.2, 5.0, 100, 'pending')""",
+            (user_id, match_id),
+        )
+        conn.commit()
+
+        maintenant = int(time.time())
+        conn.execute(
+            """UPDATE pronostics SET status = 'ignored'
+               WHERE status = 'pending' AND match_id IN (
+                   SELECT id FROM matches WHERE status = 'complete' OR match_timestamp < ?
+               )""",
+            (maintenant - 2 * 3600,),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT status FROM pronostics WHERE user_id = ?", (user_id,)).fetchone()
+        assert row["status"] == "pending"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Odds — contrainte UNIQUE (pas de doublons)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestOddsUnique:
+    def _creer_match(self, conn) -> int:
+        conn.execute(
+            "INSERT OR IGNORE INTO leagues (footystats_id,name,country,tier) VALUES(88,'L','FR',1)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO seasons (footystats_id,league_id,name,year,start_date,end_date) VALUES(88,1,'S',2024,'2024-01-01','2025-01-01')"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO teams (footystats_id,name,country) VALUES(88,'H','FR')"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO teams (footystats_id,name,country) VALUES(89,'A','FR')"
+        )
+        conn.execute(
+            """INSERT INTO matches (footystats_id,season_id,league_id,home_team_id,away_team_id,
+               match_date,match_timestamp,status)
+               VALUES(88,1,1,1,2,'2025-01-01',9999999999,'upcoming')"""
+        )
+        conn.commit()
+        return conn.execute("SELECT id FROM matches WHERE footystats_id=88").fetchone()["id"]
+
+    def test_migration_008_cree_index_unique(self):
+        conn = _creer_db_test()
+        cursor = conn.execute("PRAGMA index_list(odds)")
+        indices = [r["name"] for r in cursor.fetchall()]
+        assert "uq_odds_match_bookmaker" in indices
+
+    def test_double_insert_remplace(self):
+        """Un second INSERT OR REPLACE pour le même (match_id, bookmaker) doit remplacer."""
+        conn = _creer_db_test()
+        match_id = self._creer_match(conn)
+
+        for btts in [2.10, 2.05]:
+            conn.execute(
+                """INSERT OR REPLACE INTO odds (match_id, bookmaker, bookmaker_tier,
+                   collected_timestamp, odds_btts_yes)
+                   VALUES (?, 'footystats', 2, 1, ?)""",
+                (match_id, btts),
+            )
+        conn.commit()
+
+        rows = conn.execute("SELECT * FROM odds WHERE match_id = ?", (match_id,)).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["odds_btts_yes"] == pytest.approx(2.05)

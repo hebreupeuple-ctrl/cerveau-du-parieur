@@ -549,6 +549,19 @@ def _auto_resoudre_pronostics_sync() -> dict:
         ignored = 0
         erreurs = 0
 
+        # ── 0. Marquer les matchs passés (> 2h) encore en 'upcoming' ────
+        # Permet que la résolution des pronostics fonctionne même si
+        # la collecte des résultats FootyStats est en retard.
+        conn.execute(
+            """
+            UPDATE matches SET status = 'complete'
+            WHERE status = 'upcoming'
+            AND match_timestamp < ?
+            """,
+            (maintenant - 2 * 3600,),
+        )
+        conn.commit()
+
         # ── 1. Pronostics PLACED dont le match est terminé ──────────────
         placed_rows = conn.execute(
             """
@@ -650,6 +663,9 @@ def _auto_resoudre_pronostics_sync() -> dict:
                 )
 
         # ── 2. Pronostics PENDING dont le match est déjà terminé ───────
+        # Deux conditions OR : match marqué 'complete' OU timestamp dépassé
+        # depuis plus de 2h (buffer pour la collecte des résultats).
+        delai_expiration = maintenant - 2 * 3600
         conn.execute(
             """
             UPDATE pronostics
@@ -660,10 +676,10 @@ def _auto_resoudre_pronostics_sync() -> dict:
             AND match_id IN (
                 SELECT id FROM matches
                 WHERE status = 'complete'
-                AND match_timestamp < ?
+                   OR match_timestamp < ?
             )
             """,
-            (maintenant,),
+            (delai_expiration,),
         )
         ignored = conn.total_changes - resolved - erreurs
 
