@@ -148,7 +148,6 @@ class DixonColesModel:
 
     def __init__(self, conn: sqlite3.Connection = None):
         self.conn = conn or obtenir_connexion()
-        self.home_advantage = 1.20
         self.rho = RHO
 
     def predire_match(

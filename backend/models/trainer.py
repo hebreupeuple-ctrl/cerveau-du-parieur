@@ -116,8 +116,10 @@ FEATURES_INTERACTION = [
 FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTERACTION
 
 MARCHES = {
-    "over25":   "over25",
-    "btts":     "btts",
+    "over15":    "over15",
+    "over25":    "over25",
+    "over35":    "over35",
+    "btts":      "btts",
     "over15_ht": None,  # calculé à la volée depuis home_goals_ht + away_goals_ht
 }
 
@@ -253,7 +255,9 @@ class ModelTrainer:
             features.extend(_calculer_features_interaction(row_dict))
 
             X.append(features)
+            labels["over15"].append(int(row["over15"] or 0))
             labels["over25"].append(int(row["over25"] or 0))
+            labels["over35"].append(int(row["over35"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
             # over15_ht : calculé à partir des buts de mi-temps
             hg_ht = row["home_goals_ht"]

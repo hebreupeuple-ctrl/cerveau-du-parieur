@@ -2,8 +2,10 @@
 Endpoints pronostics.
 """
 
+import asyncio
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -57,10 +59,8 @@ async def pronostics_du_jour(
     conn: sqlite3.Connection = Depends(get_db),
 ):
     maintenant = int(time.time())
-    # Fin du jour courant en heure de Paris (CET = UTC+1)
-    # Évite d'afficher des matchs de "demain" côté utilisateur français
-    from datetime import timedelta
-    paris_tz = timezone(timedelta(hours=1))
+    # Fin du jour courant en heure de Paris (gère CET/CEST automatiquement)
+    paris_tz = ZoneInfo("Europe/Paris")
     now_paris = datetime.now(paris_tz)
     fin_du_jour = int(
         now_paris.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
@@ -95,28 +95,39 @@ async def pronostics_du_jour(
                 (current_user["id"],),
             ).fetchone()
 
-            if user_row:
-                resultat = generer_et_sauvegarder_pronostics_utilisateur(
-                    conn=conn,
-                    user=user_row,
-                    max_pronostics=10,
-                    replace_pending=True,
-                    commit=True,
+            # Vérification du seuil de suspension bankroll
+            bankroll_ratio = (
+                (user_row["current_bankroll"] or 0.0)
+                / max(user_row["initial_bankroll"] or 1.0, 1.0)
+                if user_row else 1.0
+            )
+
+            if user_row and bankroll_ratio >= settings.SUSPENSION_THRESHOLD:
+                # Génération dans un thread pour ne pas bloquer la réponse HTTP
+                from backend.database.connection import creer_connexion
+                def _generer():
+                    conn_bg = creer_connexion()
+                    try:
+                        user_bg = conn_bg.execute(
+                            "SELECT * FROM users WHERE id = ?",
+                            (user_row["id"],),
+                        ).fetchone()
+                        if user_bg:
+                            generer_et_sauvegarder_pronostics_utilisateur(
+                                conn=conn_bg,
+                                user=user_bg,
+                                max_pronostics=10,
+                                replace_pending=True,
+                                commit=True,
+                            )
+                    finally:
+                        conn_bg.close()
+
+                asyncio.create_task(asyncio.to_thread(_generer))
+                logger.info_ctx(
+                    "Génération pronostics lancée en arrière-plan",
+                    context={"user_id": current_user["id"]},
                 )
-                if resultat["inserted"] > 0:
-                    logger.info_ctx(
-                        "Pronostics auto-generes a la premiere ouverture",
-                        context={
-                            "user_id": current_user["id"],
-                            "inserted": resultat["inserted"],
-                        },
-                    )
-                    pronostics_db = _charger_pronostics_pending(
-                        conn,
-                        current_user["id"],
-                        maintenant,
-                        fin_du_jour,
-                    )
 
     pronostics_formatted = []
     for p in pronostics_db:

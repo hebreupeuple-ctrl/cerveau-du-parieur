@@ -312,7 +312,32 @@ def generer_et_sauvegarder_pronostics_utilisateur(
 ) -> dict:
     """
     Génère puis sauvegarde les pronostics pending d'un utilisateur.
+    Si la bankroll est tombée sous SUSPENSION_THRESHOLD, aucun pronostic
+    n'est généré pour protéger la bankroll restante.
     """
+    current_bankroll = user["current_bankroll"] or 0.0
+    initial_bankroll = user["initial_bankroll"] or 1.0
+    ratio_bankroll = current_bankroll / max(initial_bankroll, 1.0)
+
+    if ratio_bankroll < settings.SUSPENSION_THRESHOLD:
+        logger.warning_ctx(
+            "Génération suspendue — bankroll sous le seuil de protection",
+            context={
+                "user_id": user["id"],
+                "ratio_bankroll": round(ratio_bankroll, 4),
+                "seuil": settings.SUSPENSION_THRESHOLD,
+                "current_bankroll": current_bankroll,
+                "initial_bankroll": initial_bankroll,
+            },
+        )
+        return {
+            "user_id": user["id"],
+            "email": user["email"],
+            "inserted": 0,
+            "generated": 0,
+            "suspended": True,
+        }
+
     generateur = generateur or GenerateurPronostics(conn)
     pronostics = generateur.generer_pronostics_du_jour(
         user_id=user["id"],

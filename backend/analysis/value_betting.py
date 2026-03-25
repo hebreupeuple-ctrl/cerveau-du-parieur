@@ -87,23 +87,6 @@ def detecter_valeur(
     return ev >= seuil_ev_reel and edge >= seuil_edge
 
 
-def detecter_mouvement_sharp(
-    cotes_disponibles: dict,
-    marche_cote_key: str,
-) -> bool:
-    """
-    Détecte un mouvement de cote dit 'sharp' (action des parieurs professionnels).
-    Un mouvement est sharp si la cote a baissé depuis l'ouverture (cote_ouverture > cote_actuelle)
-    ET que le mouvement est supérieur à 5 % de la cote d'ouverture.
-    Cela indique que de l'argent intelligent a parié dans ce sens.
-    """
-    movement_key = marche_cote_key.replace("odds_", "movement_")
-    movement = cotes_disponibles.get(movement_key)
-    if movement is None:
-        return False
-    # movement > 0 : cote a baissé depuis l'ouverture (signal sharp favorable)
-    return float(movement) > 0.05
-
 
 def analyser_match(
     probabilites_modele: dict,
@@ -234,7 +217,6 @@ def analyser_match(
         )
 
         if a_valeur:
-            is_sharp = detecter_mouvement_sharp(cotes_disponibles, cfg["cote_key"])
             opportunites.append({
                 "marche": marche,
                 "label": cfg["label"],
@@ -244,7 +226,6 @@ def analyser_match(
                 "cote": cote_raw,
                 "ev": ev,
                 "confiance": round(prob_modele, 4),
-                "sharp_signal": is_sharp,
             })
 
     opportunites.sort(key=lambda x: x["ev"], reverse=True)
