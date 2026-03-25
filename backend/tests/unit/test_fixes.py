@@ -320,16 +320,18 @@ class TestAutoResolution:
             "INSERT OR IGNORE INTO teams (footystats_id,name,country) VALUES(100,'A','FR')"
         )
         conn.execute(
-            f"""
+            """
             INSERT INTO matches
             (footystats_id,season_id,league_id,home_team_id,away_team_id,
              match_date,match_timestamp,status)
-            VALUES({footystats_id},1,1,1,2,'2024-01-01',{ts_passe},'upcoming')
-            """
+            VALUES(?,1,1,1,2,'2024-01-01',?,'upcoming')
+            """,
+            (footystats_id, ts_passe),
         )
         conn.commit()
         return conn.execute(
-            f"SELECT id FROM matches WHERE footystats_id={footystats_id}"
+            "SELECT id FROM matches WHERE footystats_id = ?",
+            (footystats_id,),
         ).fetchone()["id"]
 
     def test_match_expire_marque_complete_apres_2h(self):
