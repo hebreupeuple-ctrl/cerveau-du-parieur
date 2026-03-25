@@ -666,7 +666,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
         # Deux conditions OR : match marqué 'complete' OU timestamp dépassé
         # depuis plus de 2h (buffer pour la collecte des résultats).
         delai_expiration = maintenant - 2 * 3600
-        conn.execute(
+        cursor_ignore = conn.execute(
             """
             UPDATE pronostics
             SET status = 'ignored',
@@ -681,7 +681,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
             """,
             (delai_expiration,),
         )
-        ignored = conn.total_changes - resolved - erreurs
+        ignored = cursor_ignore.rowcount
 
         conn.commit()
 

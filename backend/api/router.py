@@ -27,13 +27,14 @@ async def lifespan(app: FastAPI):
     logger.info("Base de donnees initialisee")
 
     # Réentraîner si le modèle stocké est obsolète (mauvais nombre de features)
-    from backend.models.trainer import ModelTrainer, FEATURES_COLONNES
+    from backend.models.trainer import ModelTrainer
     trainer = ModelTrainer(conn)
     trainer._charger_modeles()
     if not trainer.modeles:
         logger.info("Modele absent ou obsolete — réentraînement au démarrage")
         try:
-            await asyncio.to_thread(trainer.entrainer)
+            from backend.scheduler.tasks.automation import entrainer_modele
+            await entrainer_modele()
         except Exception as exc:
             logger.error_ctx(
                 "Echec réentraînement au démarrage",
