@@ -74,12 +74,16 @@ async def pronostics_du_jour(
     )
 
     if not pronostics_db:
+        # Compte uniquement les pending/placed : si tous les pronostics ont été
+        # placés/ignorés mais un nouveau match tombe dans la fenêtre, on doit
+        # regénérer. Exclure won/lost/void/ignored qui ne bloquent pas la génération.
         existing_window_count = conn.execute(
             """
             SELECT COUNT(*)
             FROM pronostics p
             JOIN matches m ON p.match_id = m.id
             WHERE p.user_id = ?
+            AND p.status IN ('pending', 'placed')
             AND m.match_timestamp BETWEEN ? AND ?
             """,
             (current_user["id"], maintenant, fin_du_jour),

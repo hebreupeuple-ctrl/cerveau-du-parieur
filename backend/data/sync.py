@@ -284,8 +284,8 @@ async def _synchroniser_saison(
             league_id,
             info["nom_saison"],
             info["annee"],
-            f"{info['annee']}-07-01",
-            f"{info['annee'] + 1}-06-30",
+            f"{info['annee']}-08-01",
+            f"{info['annee'] + 1}-05-31",
             ),
         )
     return True

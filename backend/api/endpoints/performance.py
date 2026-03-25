@@ -40,7 +40,7 @@ async def performance_summary(
             SUM(CASE WHEN status='won' THEN actual_profit ELSE 0 END) as total_profit
         FROM pronostics
         WHERE user_id = ?
-        AND status IN ('won', 'lost', 'void', 'ignored', 'placed')
+        AND status IN ('won', 'lost', 'void', 'ignored')
         """,
         (user_id,),
     ).fetchone()
