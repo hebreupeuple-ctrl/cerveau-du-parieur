@@ -456,7 +456,28 @@ class ModelTrainer:
             else:
                 self.modeles = payload
                 self.feature_medians = None
-            logger.info("Modeles chargés depuis le disque")
+
+            # Vérifier que le modèle correspond au nombre de features attendu
+            n_attendu = len(FEATURES_COLONNES)
+            n_modele = None
+            for ensemble in self.modeles.values():
+                feats = ensemble.get("features")
+                if feats is not None:
+                    n_modele = len(feats)
+                    break
+            if n_modele is not None and n_modele != n_attendu:
+                logger.warning_ctx(
+                    "Modèle obsolète détecté — réentraînement automatique",
+                    context={"n_modele": n_modele, "n_attendu": n_attendu},
+                )
+                self.modeles = {}
+                self.feature_medians = None
+                try:
+                    os.remove(chemin)
+                except OSError:
+                    pass
+            else:
+                logger.info("Modeles chargés depuis le disque")
         else:
             logger.warning("Aucun modele sauvegardé trouvé")
 

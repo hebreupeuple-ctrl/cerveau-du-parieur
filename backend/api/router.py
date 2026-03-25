@@ -5,6 +5,7 @@ Routeur principal FastAPI.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import asyncio
 from contextlib import asynccontextmanager
 from backend.core.logging import configurer_logging, get_logger
 from backend.core.config import settings
@@ -24,6 +25,20 @@ async def lifespan(app: FastAPI):
     conn = obtenir_connexion()
     appliquer_migrations(conn)
     logger.info("Base de donnees initialisee")
+
+    # Réentraîner si le modèle stocké est obsolète (mauvais nombre de features)
+    from backend.models.trainer import ModelTrainer, FEATURES_COLONNES
+    trainer = ModelTrainer(conn)
+    trainer._charger_modeles()
+    if not trainer.modeles:
+        logger.info("Modele absent ou obsolete — réentraînement au démarrage")
+        try:
+            await asyncio.to_thread(trainer.entrainer)
+        except Exception as exc:
+            logger.error_ctx(
+                "Echec réentraînement au démarrage",
+                context={"erreur": str(exc)},
+            )
 
     scheduler = AutomationScheduler()
     app.state.scheduler = scheduler
