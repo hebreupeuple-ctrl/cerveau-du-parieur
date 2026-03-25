@@ -135,7 +135,7 @@ class GenerateurPronostics:
         opportunites = analyser_match(
             probabilites_modele=probabilites_finales,
             cotes_disponibles=cotes,
-            seuil_confiance=0.50,
+            seuil_confiance=0.30,
             cotes_reelles=cotes_reelles,
         )
 
