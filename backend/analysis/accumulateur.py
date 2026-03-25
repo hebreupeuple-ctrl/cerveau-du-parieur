@@ -295,7 +295,8 @@ class GenerateurPronostics:
         Genere les meilleurs pronostics pour les matchs du jour.
         """
         maintenant = int(time.time())
-        dans_48h = maintenant + (48 * 3600)
+        # 36h : couvre aujourd'hui + demain sans déborder sur après-demain
+        dans_36h = maintenant + (36 * 3600)
         leagues_autorisees = self._obtenir_leagues_autorisees(user_id)
         marches_autorises = self._obtenir_marches_autorises(user_id)
 
@@ -316,7 +317,7 @@ class GenerateurPronostics:
                 AND m.league_id IN ({placeholders})
                 ORDER BY m.match_timestamp ASC
                 """,
-                (maintenant, dans_48h, *sorted(leagues_autorisees)),
+                (maintenant, dans_36h, *sorted(leagues_autorisees)),
             ).fetchall()
         else:
             matchs = []

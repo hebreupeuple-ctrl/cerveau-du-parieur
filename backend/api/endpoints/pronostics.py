@@ -57,10 +57,13 @@ async def pronostics_du_jour(
     conn: sqlite3.Connection = Depends(get_db),
 ):
     maintenant = int(time.time())
-    # Fin du jour courant en UTC (minuit prochain)
-    now_dt = datetime.now(timezone.utc)
+    # Fin du jour courant en heure de Paris (CET = UTC+1)
+    # Évite d'afficher des matchs de "demain" côté utilisateur français
+    from datetime import timedelta
+    paris_tz = timezone(timedelta(hours=1))
+    now_paris = datetime.now(paris_tz)
     fin_du_jour = int(
-        now_dt.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
+        now_paris.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
     )
 
     pronostics_db = _charger_pronostics_pending(
