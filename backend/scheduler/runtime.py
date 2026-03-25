@@ -13,6 +13,7 @@ from backend.core.logging import get_logger
 from backend.database.connection import creer_connexion
 from backend.scheduler.locks import DistributedJobLockService
 from backend.scheduler.tasks.automation import (
+    auto_resoudre_pronostics_termines,
     backfill_features_historiques,
     entrainer_modele,
     rafraichir_matchs_cotes_et_pronostics,
@@ -59,6 +60,16 @@ class AutomationScheduler:
                         rafraichir_matchs_cotes_et_pronostics,
                         settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
                         resource_name=SYSTEM_PIPELINE_RESOURCE,
+                    )
+                ),
+                # Résolution indépendante : pas d'appel API, juste SQL.
+                # Tourne toutes les 5 min pour corriger les pronostics
+                # dès que FootyStats met les scores à jour.
+                asyncio.create_task(
+                    self._boucle_job(
+                        "resolution",
+                        auto_resoudre_pronostics_termines,
+                        settings.RESOLUTION_INTERVAL_MINUTES * 60,
                     )
                 ),
             asyncio.create_task(
