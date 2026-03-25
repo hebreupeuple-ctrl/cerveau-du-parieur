@@ -21,6 +21,7 @@ from backend.models.trainer import ModelTrainer
 from backend.odds.collector import OddsCollector
 
 from backend.core.logging import get_logger
+from backend.scheduler.locks import DistributedJobLockService
 
 logger = get_logger(__name__)
 
@@ -101,38 +102,56 @@ async def synchroniser_catalogue_et_automatiser_si_necessaire(
             "reason": "catalogue_unchanged",
         }
 
-    batches_limit = (
-        max_backfill_batches
-        or settings.CATALOG_CHANGE_BACKFILL_MAX_BATCHES
-    )
-    backfill_batches = 0
-    backfill_processed = 0
-    backfill_ok = 0
-    backfill_fail = 0
-    remaining_backfill = None
-
-    for _ in range(batches_limit):
-        resultat_backfill = await backfill_features_historiques()
-        backfill_batches += 1
-        backfill_processed += resultat_backfill.get("processed", 0)
-        backfill_ok += resultat_backfill.get("ok", 0)
-        backfill_fail += resultat_backfill.get("fail", 0)
-        remaining_backfill = resultat_backfill.get("after", {}).get(
-            "features_historiques_manquantes"
+    # Verrou distribué : évite deux pipelines complets en parallèle
+    # (ex: deux instances qui reçoivent catalogue_changed simultanément).
+    lock_svc = DistributedJobLockService()
+    token = lock_svc.acquire("pipeline_catalogue")
+    if token is None:
+        logger.warning_ctx(
+            "Pipeline catalogue déjà en cours sur une autre instance, skip",
+            context={},
         )
+        return {
+            "sync": sync,
+            "pipeline_triggered": False,
+            "reason": "locked_by_another_instance",
+        }
 
-        if (
-            resultat_backfill.get("processed", 0) == 0
-            or remaining_backfill == 0
-        ):
-            break
+    try:
+        batches_limit = (
+            max_backfill_batches
+            or settings.CATALOG_CHANGE_BACKFILL_MAX_BATCHES
+        )
+        backfill_batches = 0
+        backfill_processed = 0
+        backfill_ok = 0
+        backfill_fail = 0
+        remaining_backfill = None
 
-    retrain = await entrainer_modele()
-    refresh = await rafraichir_matchs_cotes_et_pronostics(
-        heures=heures,
-        user_ids=user_ids,
-        max_pronostics=max_pronostics,
-    )
+        for _ in range(batches_limit):
+            resultat_backfill = await backfill_features_historiques()
+            backfill_batches += 1
+            backfill_processed += resultat_backfill.get("processed", 0)
+            backfill_ok += resultat_backfill.get("ok", 0)
+            backfill_fail += resultat_backfill.get("fail", 0)
+            remaining_backfill = resultat_backfill.get("after", {}).get(
+                "features_historiques_manquantes"
+            )
+
+            if (
+                resultat_backfill.get("processed", 0) == 0
+                or remaining_backfill == 0
+            ):
+                break
+
+        retrain = await entrainer_modele()
+        refresh = await rafraichir_matchs_cotes_et_pronostics(
+            heures=heures,
+            user_ids=user_ids,
+            max_pronostics=max_pronostics,
+        )
+    finally:
+        lock_svc.release("pipeline_catalogue", token)
 
     return {
         "sync": sync,

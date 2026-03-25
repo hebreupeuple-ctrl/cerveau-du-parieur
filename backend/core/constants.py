@@ -42,7 +42,7 @@ LEAGUE_TIMEZONES = {
 MARKETS = [
     "over15",
     "over25",
-    "over35",
+    "over35",   # DC uniquement — colonne en base mais jamais remplie par l'API FootyStats
     "over45",
     "under15",
     "under25",
