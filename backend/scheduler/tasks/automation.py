@@ -784,11 +784,101 @@ def _auto_resoudre_pronostics_sync() -> dict:
 
         conn.commit()
 
+        # ── 3. Re-résolution des erreurs prématurées ─────────────────────
+        # Si le match a été mis à jour par FootyStats APRÈS la résolution
+        # initiale (ex: scores pré-match 0/0 utilisés par erreur), on
+        # recalcule et on corrige le résultat + la bankroll.
+        recorriges = 0
+        recheck_rows = conn.execute(
+            """
+            SELECT
+                p.id, p.user_id, p.market, p.status as old_status,
+                p.actual_stake, p.actual_odds, p.actual_profit,
+                m.home_goals, m.away_goals, m.total_goals,
+                m.home_goals_ht, m.away_goals_ht
+            FROM pronostics p
+            JOIN matches m ON p.match_id = m.id
+            WHERE p.status IN ('won', 'lost')
+            AND p.resolved_at IS NOT NULL
+            AND p.resolved_at > datetime('now', '-72 hours')
+            AND m.home_goals IS NOT NULL
+            AND m.away_goals IS NOT NULL
+            AND datetime(m.updated_at) > datetime(p.resolved_at)
+            """
+        ).fetchall()
+
+        for p in recheck_rows:
+            try:
+                new_result = _determiner_resultat_marche(
+                    marche=p["market"],
+                    home_goals=p["home_goals"],
+                    away_goals=p["away_goals"],
+                    total_goals=p["total_goals"],
+                    home_goals_ht=p["home_goals_ht"],
+                    away_goals_ht=p["away_goals_ht"],
+                )
+
+                if new_result == p["old_status"]:
+                    continue  # Résultat inchangé
+
+                stake = p["actual_stake"] or 0.0
+                odds = p["actual_odds"] or 1.0
+                old_profit = p["actual_profit"] or 0.0
+
+                if new_result == "won":
+                    new_profit = round(stake * (odds - 1.0), 2)
+                elif new_result == "lost":
+                    new_profit = -stake
+                else:
+                    new_profit = 0.0
+
+                bankroll_delta = round(new_profit - old_profit, 2)
+
+                conn.execute(
+                    """
+                    UPDATE pronostics SET
+                        status = ?,
+                        actual_profit = ?,
+                        resolved_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (new_result, new_profit, p["id"]),
+                )
+                conn.execute(
+                    """
+                    UPDATE users SET
+                        current_bankroll = round(current_bankroll + ?, 2),
+                        bankroll_updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (bankroll_delta, p["user_id"]),
+                )
+                recorriges += 1
+                logger.info_ctx(
+                    "Pronostic re-résolu (scores mis à jour après résolution)",
+                    context={
+                        "pronostic_id": p["id"],
+                        "marche": p["market"],
+                        "ancien": p["old_status"],
+                        "nouveau": new_result,
+                        "delta_bankroll": bankroll_delta,
+                    },
+                )
+            except Exception as e:
+                logger.error_ctx(
+                    "Erreur re-résolution pronostic",
+                    context={"pronostic_id": p["id"], "erreur": str(e)},
+                )
+
+        if recorriges:
+            conn.commit()
+
         logger.info_ctx(
             "Auto-résolution pronostics terminée",
             context={
                 "resolved": resolved,
                 "ignored": ignored,
+                "recorriges": recorriges,
                 "erreurs": erreurs,
             },
         )
@@ -796,6 +886,7 @@ def _auto_resoudre_pronostics_sync() -> dict:
         return {
             "resolved": resolved,
             "ignored": ignored,
+            "recorriges": recorriges,
             "erreurs": erreurs,
         }
     finally:
