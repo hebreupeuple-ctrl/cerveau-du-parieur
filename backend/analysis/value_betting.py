@@ -54,19 +54,17 @@ def seuil_ev_adaptatif(
     seuil_base: float = SEUIL_EV_MINIMUM,
 ) -> float:
     """
-    Seuil EV plus strict quand la confiance est faible.
-    Logique : une faible confiance exige une marge de sécurité plus grande.
-    Une forte confiance (>= 70 %) valide le signal → seuil standard.
+    Seuil EV plus strict quand la confiance est faible — fonction continue.
+    Élimine les sauts brusques (anciens paliers durs à 0.65 et 0.70).
 
-    < 65 % de confiance → +40 % (ex. 7 % au lieu de 5 %)
-    65-70 %             → +20 % (ex. 6 % au lieu de 5 %)
-    >= 70 %             → seuil standard
+    prob >= 0.70 → seuil standard
+    prob  = 0.50 → seuil * 1.50 (+50 % de marge de sécurité)
+    Entre les deux : interpolation linéaire.
     """
-    if probabilite_modele < 0.65:
-        return seuil_base * 1.40
-    if probabilite_modele < 0.70:
-        return seuil_base * 1.20
-    return seuil_base
+    if probabilite_modele >= 0.70:
+        return seuil_base
+    penalite = min(1.0, (0.70 - probabilite_modele) / 0.20)
+    return round(seuil_base * (1.0 + 0.5 * penalite), 4)
 
 
 def detecter_valeur(
@@ -206,13 +204,21 @@ def analyser_match(
         ev = calculer_ev(prob_modele, cote_raw)
         edge = prob_modele - prob_bk_corrigee
 
-        # Sans cotes bookmaker réelles, l'edge est circulaire (on mesure
-        # l'écart contre notre propre modèle) : on ne l'applique pas.
-        seuil_edge_effectif = SEUIL_EDGE_MINIMUM if cotes_reelles else 0.0
+        # Sans cotes bookmaker réelles, l'edge est circulaire (mesuré contre
+        # nos propres cotes générées). On compense en doublant le seuil EV
+        # et en conservant un seuil edge minimal pour éviter les paris
+        # où le modèle est lui-même en dessous de son propre implied prob.
+        if cotes_reelles:
+            seuil_ev_effectif = SEUIL_EV_MINIMUM
+            seuil_edge_effectif = SEUIL_EDGE_MINIMUM
+        else:
+            seuil_ev_effectif = SEUIL_EV_MINIMUM * 2.0
+            seuil_edge_effectif = 0.0
         a_valeur = detecter_valeur(
             probabilite_modele=prob_modele,
             probabilite_bookmaker=prob_bk_corrigee,
             cote=cote_raw,
+            seuil_ev=seuil_ev_effectif,
             seuil_edge=seuil_edge_effectif,
         )
 

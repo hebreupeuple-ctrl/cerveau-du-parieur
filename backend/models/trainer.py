@@ -408,10 +408,14 @@ class ModelTrainer:
             # over15_ht : (indices, y) — sous-ensemble de X
             if isinstance(label_data, tuple):
                 idx, y = label_data
-                if len(idx) == 0:
+                # Seuil minimal : moins de 100 samples HT = prédictions instables
+                # (biais de ligue : seules les ligues avec données complètes
+                # sont représentées → mauvaise généralisation)
+                MIN_SAMPLES_HT = 100
+                if len(idx) < MIN_SAMPLES_HT:
                     logger.warning_ctx(
-                        "Marché ignoré : aucune donnée HT disponible",
-                        context={"marche": marche},
+                        "Marché ignoré : données HT insuffisantes",
+                        context={"marche": marche, "n_samples": len(idx), "minimum": MIN_SAMPLES_HT},
                     )
                     continue
                 X_marche = X[list(idx)]

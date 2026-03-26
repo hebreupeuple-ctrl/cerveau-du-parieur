@@ -67,7 +67,10 @@ class GenerateurPronostics:
         if match["status"] != "upcoming":
             return []
 
-        max_time = match["match_timestamp"] - 3600
+        # 2h avant le coup d'envoi : laisse le temps aux vraies nouvelles
+        # (blessures, compositions) de se refléter dans les cotes bookmaker
+        # avant que nos features soient figées.
+        max_time = match["match_timestamp"] - 7200
 
         features_row = self.conn.execute(
             "SELECT * FROM match_features WHERE match_id = ?",

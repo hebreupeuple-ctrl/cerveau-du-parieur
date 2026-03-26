@@ -93,30 +93,30 @@ def calculer_fraction_adaptative(
     - Bankroll < 80% : fraction reduite de 50%
     - Bankroll < 60% : fraction minimale 1/8
     """
-    fraction = fraction_base
+    # ── Progression de la fraction (fonctions continues, sans paliers durs) ──
+    # Maturité : 0.0 à 30 paris, 1.0 à partir de 100 paris
+    maturite = min(1.0, max(0.0, (n_paris - 30) / 70.0)) if n_paris >= 30 else 0.0
 
-    if n_paris >= 100 and roi_historique is not None:
-        if roi_historique > 0.05:
-            fraction = 0.25
-        elif roi_historique > 0.0:
-            fraction = 0.167
-        else:
-            fraction = 0.125
-    elif n_paris >= 30 and roi_historique is not None:
-        if roi_historique > 0.0:
-            fraction = 0.167
-        else:
-            fraction = 0.125
+    # Confiance ROI : 0.0 si ROI ≤ 0, 1.0 si ROI ≥ 10 %
+    if roi_historique is not None and maturite > 0:
+        confiance_roi = min(1.0, max(0.0, roi_historique / 0.10))
+    else:
+        confiance_roi = 0.0
 
+    # Score combiné : les deux signaux doivent être bons pour monter la fraction
+    score = maturite * confiance_roi  # 0.0 → 1.0
+
+    # Fraction interpolée linéairement entre 1/8 (0.125) et 1/4 (0.25)
+    fraction = fraction_base + score * (0.25 - fraction_base)
+
+    # ── Protection bankroll (réduction progressive, pas de halving brutal) ──
     ratio_bankroll = bankroll_actuelle / max(bankroll_initiale, 1.0)
 
-    # Appliqué séquentiellement : le palier < 60 % est toujours plus restrictif
-    # que le palier < 80 %, quelle que soit la fraction de départ.
     if ratio_bankroll < 0.80:
-        fraction = fraction * 0.5
-    if ratio_bankroll < 0.60:
-        # Hard-cap : même après le halving, ne dépasse pas 1/16
-        fraction = min(fraction, 0.0625)
+        # Réduction linéaire : 0 % à 0.80, -75 % à 0.50
+        reduction = min(1.0, (0.80 - ratio_bankroll) / 0.30)
+        fraction = fraction * (1.0 - 0.75 * reduction)
+        fraction = max(fraction, 0.0625)  # plancher 1/16
 
     return round(fraction, 4)
 
