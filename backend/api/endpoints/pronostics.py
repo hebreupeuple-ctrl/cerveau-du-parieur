@@ -127,7 +127,16 @@ async def pronostics_du_jour(
                     finally:
                         conn_bg.close()
 
-                asyncio.create_task(asyncio.to_thread(_generer))
+                async def _generer_avec_gestion_erreur():
+                    try:
+                        await asyncio.to_thread(_generer)
+                    except Exception as exc:
+                        logger.error_ctx(
+                            "Erreur génération pronostics arrière-plan",
+                            context={"user_id": current_user["id"], "erreur": str(exc)},
+                        )
+
+                asyncio.create_task(_generer_avec_gestion_erreur())
                 logger.info_ctx(
                     "Génération pronostics lancée en arrière-plan",
                     context={"user_id": current_user["id"]},

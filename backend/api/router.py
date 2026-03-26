@@ -111,9 +111,14 @@ def creer_app(env: str = None) -> FastAPI:
                     }
                 }
             )
+        import traceback
         logger.error_ctx(
             "Erreur non geree",
-            context={"erreur": str(exc)},
+            context={
+                "erreur": str(exc),
+                "type": type(exc).__name__,
+                "traceback": traceback.format_exc(),
+            },
         )
         return JSONResponse(
             status_code=500,
