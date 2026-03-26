@@ -13,3 +13,6 @@ build/
 venv/
 env/
 
+# Modèles ML — générés au démarrage, ne pas versionner
+data/models/*.pkl
+
