@@ -211,14 +211,15 @@ class GenerateurPronostics:
             return proba_dc
 
         # Poids DC/ML calibrés par marché :
-        # - 1x2 : DC seul (Dixon-Coles est optimal pour les issues de match)
+        # - 1x2 : DC majoritaire (structurellement optimal) + ML 20% pour la forme récente
+        #   (momentum, h2h_dominance, points_gap, ppm)
         # - over15/35 : ML plus léger (rares dans l'entraînement), DC majoritaire
         # - over25/btts : fusion équilibrée, ML apporte la forme récente
         # - over15_ht : géré séparément ci-dessous
         POIDS_PAR_MARCHE = {
-            "prob_home_win":  (1.00, 0.00),
-            "prob_draw":      (1.00, 0.00),
-            "prob_away_win":  (1.00, 0.00),
+            "prob_home_win":  (0.80, 0.20),
+            "prob_draw":      (0.80, 0.20),
+            "prob_away_win":  (0.80, 0.20),
             "prob_over15":    (0.65, 0.35),
             "prob_over25":    (0.55, 0.45),
             "prob_over35":    (0.65, 0.35),
@@ -313,11 +314,11 @@ class GenerateurPronostics:
         Genere les meilleurs pronostics pour les matchs du jour.
         """
         maintenant = int(time.time())
-        # Fenêtre : matchs entre 5h et 30h à venir
-        # - Min 5h : laisser le temps de placer le pari
-        # - Max 30h : ne pas générer des pronostics trop à l'avance (infos pas stables)
-        debut_fenetre = maintenant + (5 * 3600)
-        fin_fenetre   = maintenant + (30 * 3600)
+        # Fenêtre : matchs entre 2h et 48h à venir
+        # - Min 2h : laisser le temps de placer le pari
+        # - Max 48h : aligné sur la collecte des cotes (heures=48)
+        debut_fenetre = maintenant + (2 * 3600)
+        fin_fenetre   = maintenant + (48 * 3600)
         leagues_autorisees = self._obtenir_leagues_autorisees(user_id)
         marches_autorises = self._obtenir_marches_autorises(user_id)
 

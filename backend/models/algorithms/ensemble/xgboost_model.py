@@ -20,6 +20,8 @@ class XGBoostPredictor:
         self,
         X: np.ndarray,
         y: np.ndarray,
+        X_val: np.ndarray = None,
+        y_val: np.ndarray = None,
     ) -> None:
         try:
             import xgboost as xgb
@@ -40,12 +42,21 @@ class XGBoostPredictor:
                 reg_alpha=0.05,       # L1 regularization
                 reg_lambda=1.5,       # L2 regularization (renforcée)
                 scale_pos_weight=scale_pos_weight,
-                use_label_encoder=False,
                 eval_metric="logloss",
+                early_stopping_rounds=30,
                 random_state=42,
                 n_jobs=-1,
             )
-            self.modele.fit(X, y)
+
+            if X_val is not None and y_val is not None and len(X_val) >= 10:
+                self.modele.fit(
+                    X, y,
+                    eval_set=[(X_val, y_val)],
+                    verbose=False,
+                )
+            else:
+                self.modele.set_params(early_stopping_rounds=None)
+                self.modele.fit(X, y)
             self.est_entraine = True
             logger.info_ctx(
                 "XGBoost entraine",

@@ -119,7 +119,10 @@ MARCHES = {
     "over15":    "over15",
     "over25":    "over25",
     "btts":      "btts",
-    "over15_ht": None,  # calculé à la volée depuis home_goals_ht + away_goals_ht
+    "over15_ht": None,   # calculé à la volée depuis home_goals_ht + away_goals_ht
+    "home_win":  "home_win",  # 1x2 : victoire domicile
+    "draw":      "draw",      # 1x2 : match nul
+    "away_win":  "away_win",  # 1x2 : victoire extérieur
     # over35 : colonne présente en DB mais toujours NULL (API ne remplit pas ce champ)
     # → retiré jusqu'à ce que les données soient disponibles
 }
@@ -272,6 +275,11 @@ class ModelTrainer:
             labels["over15"].append(int(row["over15"] or 0))
             labels["over25"].append(int(row["over25"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
+            # 1x2 : dérivé de result_1x2 ('1' = home, 'X' = draw, '2' = away)
+            r1x2 = row["result_1x2"]
+            labels["home_win"].append(1 if r1x2 == "1" else 0)
+            labels["draw"].append(1 if r1x2 == "X" else 0)
+            labels["away_win"].append(1 if r1x2 == "2" else 0)
             # over15_ht : calculé à partir des buts de mi-temps
             hg_ht = row["home_goals_ht"]
             ag_ht = row["away_goals_ht"]
@@ -330,10 +338,15 @@ class ModelTrainer:
         marche: str,
         X: np.ndarray,
         y: np.ndarray,
-        ratio_train: float = 0.85,
+        ratio_train: float = 0.75,
+        ratio_cal: float = 0.10,
     ) -> dict:
         """
         Entraine l'ensemble pour un marché donné.
+        Split 3-way : 75% train / 10% calibration / 15% test.
+        - X_train  : entraînement des modèles de base + stacking OOF
+        - X_cal    : calibration Platt (données indépendantes du test)
+        - X_test   : évaluation finale (données jamais vues par le modèle)
         """
         logger.info_ctx(
             f"Entrainement marche {marche}",
@@ -341,10 +354,13 @@ class ModelTrainer:
         )
 
         n_train = int(len(X) * ratio_train)
+        n_cal   = int(len(X) * ratio_cal)
         X_train = X[:n_train]
         y_train = y[:n_train]
-        X_test = X[n_train:]
-        y_test = y[n_train:]
+        X_cal   = X[n_train:n_train + n_cal]
+        y_cal   = y[n_train:n_train + n_cal]
+        X_test  = X[n_train + n_cal:]
+        y_test  = y[n_train + n_cal:]
 
         xgb = XGBoostPredictor(marche)
         rf = RandomForestPredictor(marche)
@@ -357,23 +373,32 @@ class ModelTrainer:
             self._entrainer_stacking_oof(meta, marche, X_train, y_train)
 
         # Entraînement final sur l'intégralité du set d'entraînement
-        xgb.entrainer(X_train, y_train)
+        # XGBoost : early stopping sur X_cal (séparé du test) pour nb optimal d'arbres
+        xgb.entrainer(X_train, y_train, X_val=X_cal, y_val=y_cal)
         rf.entrainer(X_train, y_train)
         lr.entrainer(X_train, y_train)
 
+        # Calibration Platt sur X_cal (données indépendantes de X_test)
+        if len(X_cal) >= 20:
+            pred_xgb_cal = xgb.predire_proba(X_cal)
+            pred_rf_cal  = rf.predire_proba(X_cal)
+            pred_lr_cal  = lr.predire_proba(X_cal)
+            pred_cal     = meta.predire(pred_xgb_cal, pred_rf_cal, pred_lr_cal)
+            if pred_cal is not None:
+                meta.calibrer(pred_cal, y_cal)
+
+        # Évaluation finale sur X_test (jamais vu — métriques non biaisées)
         if len(X_test) > 0:
             pred_xgb = xgb.predire_proba(X_test)
-            pred_rf = rf.predire_proba(X_test)
-            pred_lr = lr.predire_proba(X_test)
+            pred_rf  = rf.predire_proba(X_test)
+            pred_lr  = lr.predire_proba(X_test)
 
             pred_combinee = meta.predire(pred_xgb, pred_rf, pred_lr)
+            # Appliquer la calibration pour avoir des métriques représentatives du prod
+            if pred_combinee is not None and meta.est_calibre:
+                pred_combinee = meta.appliquer_calibration(pred_combinee)
 
-            if pred_combinee is not None:
-                meta.calibrer(pred_combinee, y_test)
-
-            metriques = self._calculer_metriques(
-                pred_combinee, y_test
-            )
+            metriques = self._calculer_metriques(pred_combinee, y_test)
         else:
             metriques = {}
 

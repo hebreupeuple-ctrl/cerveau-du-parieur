@@ -46,7 +46,6 @@ class MetaModel:
                 return
 
             X_meta = np.column_stack([oof_xgb, oof_rf, oof_lr])
-            # fit_intercept=False : force les poids à somme cohérente
             meta = LogisticRegression(
                 C=1.0,
                 solver="lbfgs",
