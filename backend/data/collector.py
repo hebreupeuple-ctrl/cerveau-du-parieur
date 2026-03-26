@@ -398,5 +398,69 @@ class DataCollector:
             )
             return {"total": 0, "nouveaux": 0}
 
+    async def collecter_scores_recents(self, jours: int = 2) -> dict:
+        """
+        Recollecte les matchs des derniers `jours` jours qui n'ont pas
+        encore de scores en base (home_goals NULL ou 0 alors que le match
+        est terminé). Appelé après collecter_matchs_aujourdhui pour
+        rattraper les scores que FootyStats retourne avec retard.
+        """
+        from datetime import date, timedelta
+
+        total = 0
+        nouveaux = 0
+
+        for delta in range(1, jours + 1):
+            jour = date.today() - timedelta(days=delta)
+            date_str = jour.strftime("%Y-%m-%d")
+            try:
+                response = await self.client.get(
+                    "todays-matches",
+                    params={"date": date_str, "timezone": "UTC"},
+                )
+                matchs_data = response.get("data", [])
+                if not isinstance(matchs_data, list):
+                    continue
+
+                for match_data in matchs_data:
+                    league_id_fs = match_data.get("competition_id")
+                    if not league_id_fs:
+                        continue
+                    ligue = self.league_repo.trouver_par_footystats_id(league_id_fs)
+                    if not ligue:
+                        continue
+                    saison_row = self.conn.execute(
+                        """
+                        SELECT id FROM seasons
+                        WHERE league_id = ? AND status = 'active'
+                        ORDER BY year DESC LIMIT 1
+                        """,
+                        (ligue["id"],),
+                    ).fetchone()
+                    if not saison_row:
+                        continue
+                    resultat = await self._traiter_match(
+                        match_data=match_data,
+                        season_id=saison_row["id"],
+                        league_id=ligue["id"],
+                    )
+                    total += 1
+                    if resultat == "nouveau":
+                        nouveaux += 1
+
+                logger.info_ctx(
+                    "Scores récents collectés",
+                    context={"date": date_str, "total": total},
+                )
+                await asyncio.sleep(1)
+
+            except Exception as e:
+                logger.error_ctx(
+                    "Erreur collecte scores récents",
+                    context={"date": date_str, "erreur": str(e)},
+                )
+
+        return {"total": total, "nouveaux": nouveaux}
+
     async def fermer(self) -> None:
         await self.client.fermer()

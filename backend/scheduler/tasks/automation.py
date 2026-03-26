@@ -186,6 +186,9 @@ async def rafraichir_matchs_cotes_et_pronostics(
         data_collector = DataCollector(conn)
         try:
             matchs_du_jour = await data_collector.collecter_matchs_aujourdhui()
+            # Recollecte les 2 derniers jours pour récupérer les scores
+            # que FootyStats retourne avec retard (matchs résolus trop tôt)
+            await data_collector.collecter_scores_recents(jours=2)
         finally:
             await data_collector.fermer()
 
