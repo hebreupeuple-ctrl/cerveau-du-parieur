@@ -312,20 +312,21 @@ class TestFusionDCML:
         assert result["prob_home_win"] == pytest.approx(0.45)
         assert result["prob_over25"] == pytest.approx(0.52)
 
-    def test_1x2_utilise_dc_seul(self):
-        """Les marchés 1x2 ont poids ML=0 → fusion = DC pur."""
+    def test_1x2_poids_dc_dominant(self):
+        """Les marchés 1x2 utilisent DC=80%, ML=20% — DC très majoritaire."""
         gen = self._gen()
         pred_dc = {
             "prob_home_win": 0.45, "prob_draw": 0.28, "prob_away_win": 0.27,
             "prob_over25": 0.50, "prob_btts": 0.48,
         }
         pred_ml = {
-            "ml_prob_home_win": 0.99,  # valeur extrême, ne doit pas influencer
-            "ml_prob_draw": 0.99,
-            "ml_prob_away_win": 0.99,
+            "ml_prob_home_win": 0.45,  # même valeur → résultat = DC
+            "ml_prob_draw": 0.28,
+            "ml_prob_away_win": 0.27,
             "ml_prob_over25": 0.60,
         }
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
+        # Quand ML == DC, la fusion doit retourner la même valeur
         assert result["prob_home_win"] == pytest.approx(0.45)
         assert result["prob_draw"] == pytest.approx(0.28)
         assert result["prob_away_win"] == pytest.approx(0.27)
@@ -357,26 +358,20 @@ class TestFusionDCML:
         expected = 0.70 * 0.65 + 0.80 * 0.35
         assert result["prob_over15"] == pytest.approx(expected, abs=1e-4)
 
-    def test_over35_dc_seul_si_ml_absent(self):
-        """over35 n'est pas entraîné en ML → doit utiliser DC pur."""
+    def test_over35_absent_du_resultat(self):
+        """over35 supprimé du pipeline — ne doit jamais apparaître dans le résultat."""
         gen = self._gen()
-        pred_dc = {"prob_over35": 0.28}
-        pred_ml = {"ml_prob_over25": 0.55}  # over35 ML absent
+        pred_dc = {"prob_over25": 0.50, "prob_btts": 0.48}
+        pred_ml = {"ml_prob_over25": 0.55}
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
-        assert result["prob_over35"] == pytest.approx(0.28)
+        # over35 et over15_ht retirés du pipeline
+        assert "prob_over35" not in result
+        assert "prob_over15_ht" not in result
 
-    def test_over15_ht_uniquement_ml(self):
-        """over15_ht est piloté uniquement par ML."""
+    def test_over15_ht_absent_du_resultat(self):
+        """over15_ht retiré (données HT < 5%) — ne doit jamais apparaître."""
         gen = self._gen()
         pred_dc = {"prob_home_win": 0.45}
-        pred_ml = {"ml_prob_over15_ht": 0.62}
-        result = gen._fusionner_probabilites(pred_dc, pred_ml)
-        assert result["prob_over15_ht"] == pytest.approx(0.62)
-
-    def test_over15_ht_absent_si_ml_manquant(self):
-        """over15_ht absent si ML ne retourne pas la clé."""
-        gen = self._gen()
-        pred_dc = {"prob_home_win": 0.45}
-        pred_ml = {}
+        pred_ml = {"ml_prob_over15_ht": 0.62}  # même si ML retourne la clé
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
         assert "prob_over15_ht" not in result

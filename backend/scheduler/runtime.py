@@ -151,7 +151,13 @@ class AutomationScheduler:
         interval_seconds: int,
         initial_delay_seconds: int = 0,
         resource_name: str = None,
+        max_retries: int = 3,
     ) -> None:
+        """
+        Boucle principale d'un job périodique.
+        En cas d'échec, relance avec backoff exponentiel (2^n × 30s, max 10 min)
+        avant de rendre la main à l'intervalle normal.
+        """
         try:
             if initial_delay_seconds > 0:
                 await asyncio.sleep(initial_delay_seconds)
@@ -159,20 +165,40 @@ class AutomationScheduler:
                 await asyncio.sleep(interval_seconds)
 
             while True:
-                try:
-                    await self._executer_job(
-                        job_name,
-                        job_fn,
-                        resource_name=resource_name,
-                    )
-                except Exception as exc:
-                    logger.error_ctx(
-                        "Exception non gérée dans la boucle job — redémarrage au prochain cycle",
-                        context={
-                            "job_name": job_name,
-                            "erreur": str(exc),
-                        },
-                    )
+                succes = False
+                for tentative in range(1, max_retries + 1):
+                    try:
+                        await self._executer_job(
+                            job_name,
+                            job_fn,
+                            resource_name=resource_name,
+                        )
+                        succes = True
+                        break
+                    except Exception as exc:
+                        if tentative < max_retries:
+                            delai_retry = min(30 * (2 ** (tentative - 1)), 600)
+                            logger.warning_ctx(
+                                "Job échoué — retry dans %ds (tentative %d/%d)",
+                                context={
+                                    "job_name": job_name,
+                                    "tentative": tentative,
+                                    "max_retries": max_retries,
+                                    "delai_retry_s": delai_retry,
+                                    "erreur": str(exc),
+                                },
+                            )
+                            await asyncio.sleep(delai_retry)
+                        else:
+                            logger.error_ctx(
+                                "Job abandonné après %d tentatives",
+                                context={
+                                    "job_name": job_name,
+                                    "tentatives": max_retries,
+                                    "erreur": str(exc),
+                                },
+                            )
+
                 await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             raise

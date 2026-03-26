@@ -109,10 +109,6 @@ def analyser_match(
             "cote_key": "odds_over25",
             "label": "Plus de 2.5 buts",
         },
-        "over35": {
-            "cote_key": "odds_over35",
-            "label": "Plus de 3.5 buts",
-        },
         "over45": {
             "cote_key": "odds_over45",
             "label": "Plus de 4.5 buts",
@@ -120,10 +116,6 @@ def analyser_match(
         "btts": {
             "cote_key": "odds_btts_yes",
             "label": "Les deux equipes marquent",
-        },
-        "over15_ht": {
-            "cote_key": "odds_over15_ht",
-            "label": "Plus de 1.5 buts (mi-temps)",
         },
         "1x2_home": {
             "cote_key": "odds_home",
@@ -142,9 +134,7 @@ def analyser_match(
     prob_marche_modele = {
         "over15":    probabilites_modele.get("prob_over15"),
         "over25":    probabilites_modele.get("prob_over25"),
-        "over35":    probabilites_modele.get("prob_over35"),
         "over45":    probabilites_modele.get("prob_over45"),
-        "over15_ht": probabilites_modele.get("prob_over15_ht"),
         "btts":      probabilites_modele.get("prob_btts"),
         "1x2_home":  probabilites_modele.get("prob_home_win"),
         "1x2_draw":  probabilites_modele.get("prob_draw"),
@@ -155,13 +145,11 @@ def analyser_match(
     # (over/under, btts, HT) : on corrige la marge si les deux côtés sont disponibles
     corrections_binaires = {}
     paires_binaires = [
-        ("odds_over15",    "odds_under15"),
-        ("odds_over25",    "odds_under25"),
-        ("odds_over35",    "odds_under35"),
-        ("odds_over45",    "odds_under45"),
-        ("odds_btts_yes",  "odds_btts_no"),
-        ("odds_over15_ht", "odds_under15_ht"),
-        ("odds_home",      "odds_away"),  # correction 1x2 partielle si draw absent
+        ("odds_over15",   "odds_under15"),
+        ("odds_over25",   "odds_under25"),
+        ("odds_over45",   "odds_under45"),
+        ("odds_btts_yes", "odds_btts_no"),
+        ("odds_home",     "odds_away"),  # correction 1x2 partielle si draw absent
     ]
     for cle_yes, cle_no in paires_binaires:
         c_yes = cotes_disponibles.get(cle_yes)

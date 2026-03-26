@@ -66,8 +66,6 @@ class OddsCollector:
             "odds_under15":   get_first("odds_ft_under15", "odds_under15"),
             "odds_over25":    get_first("odds_ft_over25", "odds_over25"),
             "odds_under25":   get_first("odds_ft_under25", "odds_under25"),
-            "odds_over35":    get_first("odds_ft_over35", "odds_over35"),
-            "odds_under35":   get_first("odds_ft_under35", "odds_under35"),
             "odds_over45":    get_first("odds_ft_over45", "odds_over45"),
             "odds_under45":   get_first("odds_ft_under45", "odds_under45"),
             "odds_btts_yes":  safe_float(data.get("odds_btts_yes")),
@@ -133,13 +131,12 @@ class OddsCollector:
                 prob_home_corrected, prob_draw_corrected, prob_away_corrected,
                 odds_over15, odds_under15,
                 odds_over25, odds_under25,
-                odds_over35, odds_under35,
                 odds_over45, odds_under45,
                 odds_btts_yes, odds_btts_no,
                 odds_over15_ht, odds_under15_ht,
                 prob_over25_corrected, prob_btts_corrected,
                 prob_over45_corrected, prob_over15_ht_corrected
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 match_id, "footystats", 2,
@@ -148,7 +145,6 @@ class OddsCollector:
                 prob_home, prob_draw, prob_away,
                 cotes.get("odds_over15"), cotes.get("odds_under15"),
                 cotes.get("odds_over25"), cotes.get("odds_under25"),
-                cotes.get("odds_over35"), cotes.get("odds_under35"),
                 cotes.get("odds_over45"), cotes.get("odds_under45"),
                 cotes.get("odds_btts_yes"), cotes.get("odds_btts_no"),
                 cotes.get("odds_over15_ht"), cotes.get("odds_under15_ht"),

@@ -10,6 +10,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from backend.core.logging import configurer_logging, get_logger
 from backend.core.config import settings
+from backend.api.middleware.rate_limiter import RateLimiterMiddleware
 
 configurer_logging()
 logger = get_logger(__name__)
@@ -88,6 +89,7 @@ def creer_app(env: str = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RateLimiterMiddleware)
 
     from backend.api.endpoints import auth, pronostics, performance, systeme, analyse
 

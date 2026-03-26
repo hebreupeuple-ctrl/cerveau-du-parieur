@@ -87,7 +87,9 @@ class TestKellyFractionAdaptative:
             roi_historique=0.08, n_paris=150,
             bankroll_actuelle=1000, bankroll_initiale=1000,
         )
-        assert f == 0.25
+        # score = maturité(1.0) * confiance_roi(0.8) = 0.8
+        # fraction = 0.125 + 0.8 * (0.25 - 0.125) = 0.225
+        assert f == pytest.approx(0.225, abs=1e-4)
 
     def test_bankroll_inferieure_80pct_reduit(self):
         from backend.analysis.kelly import calculer_fraction_adaptative
@@ -95,8 +97,9 @@ class TestKellyFractionAdaptative:
             roi_historique=0.08, n_paris=150,
             bankroll_actuelle=750, bankroll_initiale=1000,
         )
-        # 0.25 * 0.5 = 0.125
-        assert f == pytest.approx(0.125, abs=1e-4)
+        # fraction de base = 0.225 ; ratio = 0.75 → reduction = (0.80-0.75)/0.30 = 0.1667
+        # fraction finale = 0.225 * (1 - 0.75 * 0.1667) ≈ 0.1969
+        assert f == pytest.approx(0.1969, abs=1e-3)
 
     def test_bankroll_inferieure_60pct_plus_restrictif(self):
         """Bankroll < 60 % doit être PLUS restrictif que 60-80 %."""
@@ -146,14 +149,16 @@ class TestValueBettingHT:
         marches = [o["marche"] for o in ops]
         assert "over15_ht" not in marches
 
-    def test_over15_ht_detecte_si_cote_presente(self):
-        """Avec cote HT disponible et EV positive, le marché doit apparaître."""
+    def test_over15_ht_jamais_genere(self):
+        """over15_ht retiré du pipeline (données HT < 5% disponibilité)."""
         from backend.analysis.value_betting import analyser_match
-        prob = {"prob_over15_ht": 0.75}
-        cotes = {"odds_over15_ht": 1.60, "odds_under15_ht": 2.50}
+        prob = {"prob_over15_ht": 0.75, "prob_over25": 0.70}
+        cotes = {"odds_over15_ht": 1.60, "odds_under15_ht": 2.50,
+                 "odds_over25": 1.90, "odds_under25": 1.95}
         ops = analyser_match(prob, cotes, seuil_confiance=0.55)
         marches = [o["marche"] for o in ops]
-        assert "over15_ht" in marches
+        # over15_ht retiré — ne doit jamais apparaître dans les opportunités
+        assert "over15_ht" not in marches
 
     def test_correction_marge_binaire(self):
         """La probabilité bookmaker corrigée doit être inférieure à la brute."""

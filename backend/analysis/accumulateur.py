@@ -77,7 +77,7 @@ class GenerateurPronostics:
             (match_id,),
         ).fetchone()
 
-        # Recalcule si absent ou si calculé il y a plus de 2h avant le coup d'envoi
+        # Recalcule si absent ou si calculé il y a plus de 2h (depuis maintenant)
         doit_recalculer = True
         if features_row and features_row["calculated_at"]:
             try:
@@ -88,8 +88,9 @@ class GenerateurPronostics:
                     .replace(tzinfo=timezone.utc)
                     .timestamp()
                 )
-                # Fraîches si calculées dans les 2h précédant la fenêtre max_time
-                if calculated_ts >= match["match_timestamp"] - 4 * 3600:
+                now = int(time.time())
+                # Cache valide si les features ont été calculées il y a < 2h
+                if calculated_ts >= now - 2 * 3600:
                     doit_recalculer = False
             except (ValueError, TypeError):
                 pass
@@ -201,7 +202,6 @@ class GenerateurPronostics:
             "prob_away_win": pred_dc.get("prob_away_win", 0.33),
             "prob_over15": pred_dc.get("prob_over15", 0.70),
             "prob_over25": pred_dc.get("prob_over25", 0.50),
-            "prob_over35": pred_dc.get("prob_over35", 0.30),
             "prob_over45": pred_dc.get("prob_over45", 0.15),
             "prob_btts": pred_dc.get("prob_btts", 0.50),
             "prob_btts_no": pred_dc.get("prob_btts_no", 0.50),
@@ -222,7 +222,6 @@ class GenerateurPronostics:
             "prob_away_win":  (0.80, 0.20),
             "prob_over15":    (0.65, 0.35),
             "prob_over25":    (0.55, 0.45),
-            "prob_over35":    (0.65, 0.35),
             "prob_over45":    (0.75, 0.25),
             "prob_btts":      (0.55, 0.45),
             "prob_btts_no":   (0.55, 0.45),
@@ -239,11 +238,6 @@ class GenerateurPronostics:
                 )
             else:
                 result[k] = v_dc
-
-        # Marché HT : uniquement piloté par ML (DC ne modèle pas la mi-temps)
-        ml_over15_ht = pred_ml.get("ml_prob_over15_ht")
-        if ml_over15_ht is not None:
-            result["prob_over15_ht"] = round(float(ml_over15_ht), 4)
 
         return result
 
@@ -285,14 +279,13 @@ class GenerateurPronostics:
         cotes = {}
 
         for cle_prob, cle_cote in [
-            ("prob_over15",    "odds_over15"),
-            ("prob_over25",    "odds_over25"),
-            ("prob_over35",    "odds_over35"),
-            ("prob_over45",    "odds_over45"),
-            ("prob_btts",      "odds_btts_yes"),
-            ("prob_home_win",  "odds_home"),
-            ("prob_draw",      "odds_draw"),
-            ("prob_away_win",  "odds_away"),
+            ("prob_over15",   "odds_over15"),
+            ("prob_over25",   "odds_over25"),
+            ("prob_over45",   "odds_over45"),
+            ("prob_btts",     "odds_btts_yes"),
+            ("prob_home_win", "odds_home"),
+            ("prob_draw",     "odds_draw"),
+            ("prob_away_win", "odds_away"),
         ]:
             p = probabilites.get(cle_prob)
             if p and p > 0.05:

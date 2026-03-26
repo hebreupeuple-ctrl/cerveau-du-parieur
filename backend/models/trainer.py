@@ -116,15 +116,14 @@ FEATURES_INTERACTION = [
 FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTERACTION
 
 MARCHES = {
-    "over15":    "over15",
-    "over25":    "over25",
-    "btts":      "btts",
-    "over15_ht": None,   # calculé à la volée depuis home_goals_ht + away_goals_ht
-    "home_win":  "home_win",  # 1x2 : victoire domicile
-    "draw":      "draw",      # 1x2 : match nul
-    "away_win":  "away_win",  # 1x2 : victoire extérieur
-    # over35 : colonne présente en DB mais toujours NULL (API ne remplit pas ce champ)
-    # → retiré jusqu'à ce que les données soient disponibles
+    "over15":   "over15",
+    "over25":   "over25",
+    "btts":     "btts",
+    "home_win": "home_win",  # 1x2 : victoire domicile
+    "draw":     "draw",      # 1x2 : match nul
+    "away_win": "away_win",  # 1x2 : victoire extérieur
+    # over35 : colonne DB toujours NULL (FootyStats ne remplit pas ce champ)
+    # over15_ht : données mi-temps < 5% de disponibilité → prédictions non fiables
 }
 
 
@@ -280,13 +279,6 @@ class ModelTrainer:
             labels["home_win"].append(1 if r1x2 == "1" else 0)
             labels["draw"].append(1 if r1x2 == "X" else 0)
             labels["away_win"].append(1 if r1x2 == "2" else 0)
-            # over15_ht : calculé à partir des buts de mi-temps
-            hg_ht = row["home_goals_ht"]
-            ag_ht = row["away_goals_ht"]
-            if hg_ht is not None and ag_ht is not None:
-                labels["over15_ht"].append(int((hg_ht + ag_ht) > 1))
-            else:
-                labels["over15_ht"].append(None)
 
         X_array = np.array(X, dtype=np.float32)
 
@@ -309,21 +301,7 @@ class ModelTrainer:
             },
         )
 
-        # Pour over15_ht, construire un array masqué (ignorer les None)
-        labels_arrays = {}
-        for marche, vals in labels.items():
-            if marche == "over15_ht":
-                valides = [(i, v) for i, v in enumerate(vals) if v is not None]
-                if valides:
-                    idx, yvals = zip(*valides)
-                    labels_arrays["over15_ht"] = (
-                        np.array(list(idx)),
-                        np.array(list(yvals)),
-                    )
-                else:
-                    labels_arrays["over15_ht"] = (np.array([]), np.array([]))
-            else:
-                labels_arrays[marche] = np.array(vals)
+        labels_arrays = {marche: np.array(vals) for marche, vals in labels.items()}
 
         return {
             "X": X_array,
@@ -429,25 +407,8 @@ class ModelTrainer:
         resultats = {}
 
         for marche in MARCHES:
-            label_data = donnees["labels"][marche]
-            # over15_ht : (indices, y) — sous-ensemble de X
-            if isinstance(label_data, tuple):
-                idx, y = label_data
-                # Seuil minimal : moins de 100 samples HT = prédictions instables
-                # (biais de ligue : seules les ligues avec données complètes
-                # sont représentées → mauvaise généralisation)
-                MIN_SAMPLES_HT = 100
-                if len(idx) < MIN_SAMPLES_HT:
-                    logger.warning_ctx(
-                        "Marché ignoré : données HT insuffisantes",
-                        context={"marche": marche, "n_samples": len(idx), "minimum": MIN_SAMPLES_HT},
-                    )
-                    continue
-                X_marche = X[list(idx)]
-            else:
-                X_marche = X
-                y = label_data
-            metriques = self.entrainer_marche(marche, X_marche, y)
+            y = donnees["labels"][marche]
+            metriques = self.entrainer_marche(marche, X, y)
             resultats[marche] = metriques
 
         chemin = self._sauvegarder_modeles()

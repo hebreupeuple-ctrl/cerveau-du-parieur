@@ -14,7 +14,6 @@ from backend.features.groups.contexte import calculer_features_contexte
 from backend.features.groups.ligue import calculer_features_ligue
 from backend.features.groups.classement import calculer_features_classement
 from backend.features.groups.shots_corners import calculer_features_shots_corners
-from backend.features.groups.arbitre import calculer_features_arbitre
 
 logger = get_logger(__name__)
 
@@ -119,14 +118,6 @@ class FeaturePipeline:
                 features[f"home_{k}"] = v
             for k, v in sc_away.items():
                 features[f"away_{k}"] = v
-
-            # Groupe 10 — Arbitre
-            arbitre = calculer_features_arbitre(
-                conn=self.conn,
-                match_id=match_id,
-                max_time=max_time,
-            )
-            features.update(arbitre)
 
             return features
 
