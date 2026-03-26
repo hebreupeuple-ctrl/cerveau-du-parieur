@@ -592,8 +592,24 @@ class ModelTrainer:
             settings.MODELS_DIR, "ensemble_actuel.pkl"
         )
         if os.path.exists(chemin):
-            with open(chemin, "rb") as f:
-                payload = pickle.load(f)
+            import warnings
+            from sklearn.exceptions import InconsistentVersionWarning
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", InconsistentVersionWarning)
+                with open(chemin, "rb") as f:
+                    payload = pickle.load(f)
+
+            if any(issubclass(w.category, InconsistentVersionWarning) for w in caught):
+                logger.warning_ctx(
+                    "Modèle sklearn obsolète (version incompatible) — réentraînement forcé",
+                    context={"chemin": chemin},
+                )
+                try:
+                    os.remove(chemin)
+                except OSError:
+                    pass
+                return
+
             # Compatibilité avec l'ancien format (dict de modèles directement)
             if isinstance(payload, dict) and "modeles" in payload:
                 self.modeles = payload["modeles"]
