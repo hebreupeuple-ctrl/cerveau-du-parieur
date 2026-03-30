@@ -55,7 +55,95 @@ async def performance_summary(
 
     total_staked = stats["total_staked"] or 0
     total_profit = stats["total_profit"] or 0
-    roi = total_profit / total_staked if total_staked > 0 else None
+    roi = round(total_profit / total_staked, 4) if total_staked > 0 else None
+
+    # ROI par marché
+    by_market_rows = conn.execute(
+        f"""
+        SELECT
+            market,
+            COUNT(*) as total,
+            SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as won,
+            SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as lost,
+            SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END) as staked,
+            SUM(CASE WHEN status IN ('won','lost') THEN actual_profit ELSE 0 END) as profit,
+            AVG(CASE WHEN clv IS NOT NULL THEN clv END) as avg_clv
+        FROM pronostics
+        WHERE user_id = ?
+        AND status IN ('won', 'lost', 'void')
+        {date_filter}
+        GROUP BY market
+        ORDER BY profit DESC
+        """,
+        (user_id,),
+    ).fetchall()
+
+    by_market = []
+    for row in by_market_rows:
+        staked_m = row["staked"] or 0
+        profit_m = row["profit"] or 0
+        by_market.append({
+            "market": row["market"],
+            "total": row["total"],
+            "won": row["won"] or 0,
+            "lost": row["lost"] or 0,
+            "win_rate": round(row["won"] / max((row["won"] or 0) + (row["lost"] or 0), 1), 4),
+            "staked": round(staked_m, 2),
+            "profit": round(profit_m, 2),
+            "roi": round(profit_m / staked_m, 4) if staked_m > 0 else None,
+            "avg_clv": round(row["avg_clv"], 2) if row["avg_clv"] is not None else None,
+        })
+
+    # ROI par ligue
+    by_league_rows = conn.execute(
+        f"""
+        SELECT
+            l.name as league_name,
+            COUNT(*) as total,
+            SUM(CASE WHEN p.status='won' THEN 1 ELSE 0 END) as won,
+            SUM(CASE WHEN p.status='lost' THEN 1 ELSE 0 END) as lost,
+            SUM(CASE WHEN p.status IN ('won','lost') THEN p.actual_stake ELSE 0 END) as staked,
+            SUM(CASE WHEN p.status IN ('won','lost') THEN p.actual_profit ELSE 0 END) as profit
+        FROM pronostics p
+        JOIN matches m ON p.match_id = m.id
+        JOIN leagues l ON m.league_id = l.id
+        WHERE p.user_id = ?
+        AND p.status IN ('won', 'lost', 'void')
+        {date_filter}
+        GROUP BY l.name
+        ORDER BY profit DESC
+        """,
+        (user_id,),
+    ).fetchall()
+
+    by_league = []
+    for row in by_league_rows:
+        staked_l = row["staked"] or 0
+        profit_l = row["profit"] or 0
+        by_league.append({
+            "league": row["league_name"],
+            "total": row["total"],
+            "won": row["won"] or 0,
+            "lost": row["lost"] or 0,
+            "win_rate": round(row["won"] / max((row["won"] or 0) + (row["lost"] or 0), 1), 4),
+            "staked": round(staked_l, 2),
+            "profit": round(profit_l, 2),
+            "roi": round(profit_l / staked_l, 4) if staked_l > 0 else None,
+        })
+
+    # CLV moyen global (paris placed avec closing_odds renseigné)
+    clv_row = conn.execute(
+        f"""
+        SELECT AVG(clv) as avg_clv, COUNT(clv) as n_clv
+        FROM pronostics
+        WHERE user_id = ?
+        AND clv IS NOT NULL
+        AND status IN ('won', 'lost', 'void')
+        {date_filter}
+        """,
+        (user_id,),
+    ).fetchone()
+    avg_clv = round(clv_row["avg_clv"], 2) if clv_row["avg_clv"] is not None else None
 
     model_version = conn.execute(
         """
@@ -77,10 +165,11 @@ async def performance_summary(
         "metrics": {
             "roi": roi,
             "yield": roi,
-            "avg_clv": None,
+            "avg_clv": avg_clv,
+            "clv_sample_size": clv_row["n_clv"] if clv_row else 0,
             "max_drawdown": None,
             "win_rate": (
-                stats["bets_won"] / max(stats["bets_won"] + stats["bets_lost"], 1)
+                round(stats["bets_won"] / max(stats["bets_won"] + stats["bets_lost"], 1), 4)
                 if stats["total_bets"] > 0 else None
             ),
         },
@@ -90,10 +179,11 @@ async def performance_summary(
             "bets_lost": stats["bets_lost"] or 0,
             "bets_void": stats["bets_void"] or 0,
             "bets_ignored": stats["bets_ignored"] or 0,
-            "total_staked": total_staked,
-            "total_profit": total_profit,
+            "total_staked": round(total_staked, 2),
+            "total_profit": round(total_profit, 2),
         },
-        "by_market": [],
+        "by_market": by_market,
+        "by_league": by_league,
         "model_health": {
             "brier_score": model_version["brier_score_over25"] if model_version else None,
             "auc_roc": model_version["auc_roc_over25"] if model_version else None,

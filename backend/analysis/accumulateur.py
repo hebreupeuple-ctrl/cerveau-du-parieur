@@ -239,6 +239,20 @@ class GenerateurPronostics:
             else:
                 result[k] = v_dc
 
+        # Marchés dérivés — calculés depuis les probabilités fusionnées
+        result["prob_under25"] = round(1.0 - result.get("prob_over25", 0.5), 4)
+        result["prob_ng"] = round(1.0 - result.get("prob_btts", 0.5), 4)
+        result["prob_dc_1x"] = round(
+            min(result.get("prob_home_win", 0) + result.get("prob_draw", 0), 0.99), 4
+        )
+        result["prob_dc_x2"] = round(
+            min(result.get("prob_draw", 0) + result.get("prob_away_win", 0), 0.99), 4
+        )
+        # GG & Over 2.5 : approximation par indépendance (légèrement optimiste)
+        result["prob_gg_over25"] = round(
+            result.get("prob_btts", 0) * result.get("prob_over25", 0), 4
+        )
+
         return result
 
     def _obtenir_cotes(self, match_id: int) -> dict:
@@ -286,6 +300,11 @@ class GenerateurPronostics:
             ("prob_home_win", "odds_home"),
             ("prob_draw",     "odds_draw"),
             ("prob_away_win", "odds_away"),
+            ("prob_under25",  "odds_under25"),
+            ("prob_ng",       "odds_btts_no"),
+            ("prob_dc_1x",    "odds_dc_1x"),
+            ("prob_dc_x2",    "odds_dc_x2"),
+            ("prob_gg_over25","odds_gg_over25"),
         ]:
             p = probabilites.get(cle_prob)
             if p and p > 0.05:

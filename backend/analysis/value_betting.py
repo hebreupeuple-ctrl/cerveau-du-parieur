@@ -100,6 +100,38 @@ def analyser_match(
     """
     opportunites = []
 
+    # Dériver les cotes Double Chance depuis les cotes 1X2 bookmaker si disponibles
+    c_home = cotes_disponibles.get("odds_home")
+    c_draw_raw = cotes_disponibles.get("odds_draw")
+    c_away = cotes_disponibles.get("odds_away")
+    if c_home and c_draw_raw and c_away and all(c > 1.0 for c in [c_home, c_draw_raw, c_away]):
+        somme_1x2 = 1.0 / c_home + 1.0 / c_draw_raw + 1.0 / c_away
+        if somme_1x2 > 0:
+            p_bk_home = (1.0 / c_home) / somme_1x2
+            p_bk_draw = (1.0 / c_draw_raw) / somme_1x2
+            p_bk_away = (1.0 / c_away) / somme_1x2
+            if "odds_dc_1x" not in cotes_disponibles:
+                p_dc_1x = p_bk_home + p_bk_draw
+                if p_dc_1x > 0:
+                    cotes_disponibles = dict(cotes_disponibles)
+                    cotes_disponibles["odds_dc_1x"] = round(1.0 / p_dc_1x, 2)
+            if "odds_dc_x2" not in cotes_disponibles:
+                p_dc_x2 = p_bk_draw + p_bk_away
+                if p_dc_x2 > 0:
+                    cotes_disponibles = dict(cotes_disponibles)
+                    cotes_disponibles["odds_dc_x2"] = round(1.0 / p_dc_x2, 2)
+
+    # Dériver la cote GG & Over 2.5 depuis odds_btts_yes et odds_over25 si disponibles
+    c_btts = cotes_disponibles.get("odds_btts_yes")
+    c_o25 = cotes_disponibles.get("odds_over25")
+    if c_btts and c_o25 and c_btts > 1.0 and c_o25 > 1.0:
+        if "odds_gg_over25" not in cotes_disponibles:
+            # P(GG & Over 2.5) ≈ P(GG) × P(Over 2.5) — approximation par indépendance
+            p_combined = (1.0 / c_btts) * (1.0 / c_o25)
+            if p_combined > 0.01:
+                cotes_disponibles = dict(cotes_disponibles)
+                cotes_disponibles["odds_gg_over25"] = round(1.0 / p_combined, 2)
+
     mapping_marches = {
         "over15": {
             "cote_key": "odds_over15",
@@ -129,6 +161,26 @@ def analyser_match(
             "cote_key": "odds_away",
             "label": "Victoire exterieur",
         },
+        "under25": {
+            "cote_key": "odds_under25",
+            "label": "Moins de 2.5 buts",
+        },
+        "ng": {
+            "cote_key": "odds_btts_no",
+            "label": "Aucune des deux équipes ne marque",
+        },
+        "dc_1x": {
+            "cote_key": "odds_dc_1x",
+            "label": "Double chance 1X (domicile ou nul)",
+        },
+        "dc_x2": {
+            "cote_key": "odds_dc_x2",
+            "label": "Double chance X2 (nul ou extérieur)",
+        },
+        "gg_over25": {
+            "cote_key": "odds_gg_over25",
+            "label": "Les deux marquent & plus de 2.5 buts",
+        },
     }
 
     prob_marche_modele = {
@@ -139,6 +191,11 @@ def analyser_match(
         "1x2_home":  probabilites_modele.get("prob_home_win"),
         "1x2_draw":  probabilites_modele.get("prob_draw"),
         "1x2_away":  probabilites_modele.get("prob_away_win"),
+        "under25":   probabilites_modele.get("prob_under25"),
+        "ng":        probabilites_modele.get("prob_ng"),
+        "dc_1x":     probabilites_modele.get("prob_dc_1x"),
+        "dc_x2":     probabilites_modele.get("prob_dc_x2"),
+        "gg_over25": probabilites_modele.get("prob_gg_over25"),
     }
 
     # Pré-calcul des probabilités implicites corrigées pour les marchés binaires

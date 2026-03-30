@@ -200,6 +200,9 @@ async def rafraichir_matchs_cotes_et_pronostics(
     finally:
         conn.close()
 
+    # Closing Line Value : capture les cotes de fermeture avant le coup d'envoi
+    await mettre_a_jour_clv()
+
     # Résolution automatique des pronostics placed sur matchs terminés
     resolution = await auto_resoudre_pronostics_termines()
 
@@ -383,7 +386,9 @@ def generer_et_sauvegarder_pronostics_utilisateur(
     if replace_pending:
         conn.execute(
             """
-            DELETE FROM pronostics
+            UPDATE pronostics
+            SET status = 'superseded',
+                superseded_reason = 'regeneration_scheduler'
             WHERE user_id = ?
             AND status = 'pending'
             """,
@@ -628,8 +633,106 @@ def _determiner_resultat_marche(
         return "won" if hg == ag else "lost"
     elif marche == "1x2_away":
         return "won" if ag > hg else "lost"
+    elif marche == "under25":
+        return "won" if tg < 3 else "lost"
+    elif marche == "ng":
+        return "won" if not (hg > 0 and ag > 0) else "lost"
+    elif marche == "dc_1x":
+        return "won" if hg >= ag else "lost"
+    elif marche == "dc_x2":
+        return "won" if ag >= hg else "lost"
+    elif marche == "gg_over25":
+        return "won" if (hg > 0 and ag > 0 and tg > 2) else "lost"
     # Marché inconnu → void
     return "void"
+
+
+# Correspondance marché → colonne odds dans la table `odds`
+_MARCHE_VERS_COLONNE_ODDS = {
+    "over15":    "odds_over15",
+    "over25":    "odds_over25",
+    "over35":    "odds_over35",
+    "over45":    "odds_over45",
+    "btts":      "odds_btts_yes",
+    "1x2_home":  "odds_home",
+    "1x2_draw":  "odds_draw",
+    "1x2_away":  "odds_away",
+    "under25":   "odds_under25",
+    "ng":        "odds_btts_no",
+}
+
+
+async def mettre_a_jour_clv() -> dict:
+    """
+    Capture les closing odds pour les pronostics placés dont le match
+    commence dans moins de 2h. Calcule et enregistre le CLV.
+    CLV = (reference_odds / closing_odds - 1) × 100
+    Positif → on a eu une meilleure cote que le marché final (edge réel).
+    """
+    return await asyncio.to_thread(_mettre_a_jour_clv_sync)
+
+
+def _mettre_a_jour_clv_sync() -> dict:
+    conn = creer_connexion()
+    try:
+        maintenant = int(time.time())
+        fenetre_fermeture = maintenant + 2 * 3600  # matchs dans les 2 prochaines heures
+
+        rows = conn.execute(
+            """
+            SELECT p.id, p.market, p.reference_odds,
+                   p.actual_odds, p.closing_odds,
+                   m.match_id, o.match_id as odds_match_id,
+                   p.match_id as p_match_id
+            FROM pronostics p
+            JOIN matches m ON p.match_id = m.id
+            WHERE p.status = 'placed'
+            AND p.closing_odds IS NULL
+            AND m.match_timestamp <= ?
+            AND m.match_timestamp >= ?
+            """,
+            (fenetre_fermeture, maintenant - 3600),
+        ).fetchall()
+
+        mis_a_jour = 0
+        for p in rows:
+            col_odds = _MARCHE_VERS_COLONNE_ODDS.get(p["market"])
+            if not col_odds:
+                continue
+
+            odds_row = conn.execute(
+                f"""
+                SELECT {col_odds} FROM odds
+                WHERE match_id = ?
+                AND {col_odds} IS NOT NULL
+                ORDER BY collected_timestamp DESC
+                LIMIT 1
+                """,
+                (p["p_match_id"],),
+            ).fetchone()
+
+            if not odds_row or not odds_row[col_odds]:
+                continue
+
+            closing = float(odds_row[col_odds])
+            ref = float(p["reference_odds"] or p["actual_odds"] or closing)
+            clv = round((ref / closing - 1.0) * 100, 2) if closing > 1.0 else None
+
+            conn.execute(
+                """
+                UPDATE pronostics SET closing_odds = ?, clv = ?
+                WHERE id = ?
+                """,
+                (closing, clv, p["id"]),
+            )
+            mis_a_jour += 1
+
+        if mis_a_jour:
+            conn.commit()
+
+        return {"mis_a_jour": mis_a_jour}
+    finally:
+        conn.close()
 
 
 async def auto_resoudre_pronostics_termines() -> dict:
@@ -703,12 +806,16 @@ def _auto_resoudre_pronostics_sync() -> dict:
                     profit = 0.0
                     retour = stake
 
-                # Lire bankroll actuelle
+                # Chaque pronostic est résolu dans sa propre transaction atomique
+                # pour éviter toute désynchronisation bankroll/pronostic en cas de crash
+                conn.execute("BEGIN IMMEDIATE")
+
                 user_row = conn.execute(
                     "SELECT current_bankroll FROM users WHERE id = ?",
                     (p["user_id"],),
                 ).fetchone()
                 if not user_row:
+                    conn.rollback()
                     continue
 
                 bankroll_avant = user_row["current_bankroll"]
@@ -755,9 +862,11 @@ def _auto_resoudre_pronostics_sync() -> dict:
                         f"Auto-résolution {resultat} — {p['market']}",
                     ),
                 )
+                conn.commit()
                 resolved += 1
 
             except Exception as e:
+                conn.rollback()
                 erreurs += 1
                 logger.error_ctx(
                     "Erreur auto-résolution pronostic placé",

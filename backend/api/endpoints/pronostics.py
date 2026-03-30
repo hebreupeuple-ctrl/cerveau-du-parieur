@@ -164,6 +164,11 @@ async def pronostics_du_jour(
                 "1x2_home":  "Victoire domicile",
                 "1x2_draw":  "Match nul",
                 "1x2_away":  "Victoire extérieur",
+                "under25":   "Moins de 2.5 buts",
+                "ng":        "Aucune équipe ne marque",
+                "dc_1x":     "Double chance 1X",
+                "dc_x2":     "Double chance X2",
+                "gg_over25": "GG & Plus de 2.5 buts",
             }.get(p["market"], p["market"]),
             "reference_bookmaker": p["reference_bookmaker"],
             "reference_odds": p["reference_odds"],
@@ -173,7 +178,7 @@ async def pronostics_du_jour(
             "expected_value": p["expected_value"],
             "confidence_score": p["confidence_score"],
             "recommended_stake": p["recommended_stake"],
-            "potential_gain": round(p["recommended_stake"] * p["reference_odds"], 2),
+            "potential_gain": round(p["recommended_stake"] * (p["reference_odds"] - 1), 2),
             "status": p["status"],
         })
 
@@ -198,6 +203,29 @@ async def pronostics_du_jour(
                 "timestamp": row["match_timestamp"],
             }
 
+    # Variations bankroll réelles depuis les transactions
+    bankroll_stats = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE
+                WHEN date(created_at) = date('now', 'localtime')
+                AND transaction_type IN ('bet_won', 'bet_lost', 'bet_void')
+                THEN amount ELSE 0 END), 0) as today_change,
+            COALESCE(SUM(CASE
+                WHEN created_at >= datetime('now', '-7 days')
+                AND transaction_type IN ('bet_won', 'bet_lost', 'bet_void')
+                THEN amount ELSE 0 END), 0) as week_change
+        FROM bankroll_transactions
+        WHERE user_id = ?
+        """,
+        (current_user["id"],),
+    ).fetchone()
+
+    today_change = round(bankroll_stats["today_change"], 2)
+    week_change = round(bankroll_stats["week_change"], 2)
+    initial = current_user["initial_bankroll"] or 1.0
+    week_change_pct = round(week_change / initial * 100, 2)
+
     return reponse_succes({
         "system_mode": current_user["system_mode"],
         "pronostics": pronostics_formatted,
@@ -205,9 +233,9 @@ async def pronostics_du_jour(
         "combine_recommendation": None,
         "bankroll_summary": {
             "current": current_user["current_bankroll"],
-            "today_change": 0,
-            "week_change": 0,
-            "week_change_pct": 0,
+            "today_change": today_change,
+            "week_change": week_change,
+            "week_change_pct": week_change_pct,
         }
     })
 
@@ -462,6 +490,11 @@ async def historique_pronostics(
         "1x2_home":  "Victoire domicile",
         "1x2_draw":  "Match nul",
         "1x2_away":  "Victoire extérieur",
+        "under25":   "Moins de 2.5 buts",
+        "ng":        "Aucune équipe ne marque",
+        "dc_1x":     "Double chance 1X",
+        "dc_x2":     "Double chance X2",
+        "gg_over25": "GG & Plus de 2.5 buts",
     }
 
     offset = (page - 1) * limit
@@ -470,7 +503,7 @@ async def historique_pronostics(
     if status == "en_cours":
         status_clause = "AND p.status IN ('pending', 'placed')"
         params_status = []
-    elif status and status in ("won", "lost", "void", "placed", "pending", "ignored"):
+    elif status and status in ("won", "lost", "void", "placed", "pending", "ignored", "superseded"):
         status_clause = "AND p.status = ?"
         params_status = [status]
     else:
@@ -603,6 +636,20 @@ async def ignorer_pronostic(
     current_user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ):
+    pronostic = conn.execute(
+        "SELECT status FROM pronostics WHERE id = ? AND user_id = ?",
+        (pronostic_id, current_user["id"]),
+    ).fetchone()
+
+    if not pronostic:
+        raise HTTPException(status_code=404, detail="Pronostic introuvable")
+
+    if pronostic["status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="Seuls les pronostics en attente peuvent être ignorés",
+        )
+
     conn.execute(
         """
         UPDATE pronostics SET
