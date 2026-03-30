@@ -243,6 +243,8 @@ export default function Aujourd_hui() {
 
   const pronostics = data?.pronostics || []
   const bankroll = data?.bankroll_summary?.current ?? 150
+  const todayChange = data?.bankroll_summary?.today_change ?? 0
+  const weekChange = data?.bankroll_summary?.week_change ?? 0
   const prochainMatch = data?.prochain_match
 
   return (
@@ -285,6 +287,12 @@ export default function Aujourd_hui() {
             <div style={{ fontSize: '11px', color: '#666666', marginBottom: '2px' }}>Bankroll</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: '#F5F5F5' }}>
               {bankroll.toFixed(2)}€
+            </div>
+            <div style={{ fontSize: '11px', marginTop: '2px', color: todayChange >= 0 ? '#16A34A' : '#DC2626' }}>
+              {todayChange >= 0 ? '+' : ''}{todayChange.toFixed(2)}€ aujourd'hui
+            </div>
+            <div style={{ fontSize: '11px', color: weekChange >= 0 ? '#16A34A' : '#DC2626' }}>
+              {weekChange >= 0 ? '+' : ''}{weekChange.toFixed(2)}€ cette semaine
             </div>
           </div>
         </div>

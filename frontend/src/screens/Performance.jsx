@@ -222,29 +222,85 @@ export default function Performance() {
             </div>
           </Card>
 
+          {/* CLV moyen */}
+          {metr.avg_clv != null && (
+            <Card style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '13px', color: '#A0A0A0' }}>Closing Line Value moyen</div>
+                  <div style={{ fontSize: '11px', color: '#555555', marginTop: '2px' }}>
+                    Sur {metr.clv_sample_size} pari{metr.clv_sample_size > 1 ? 's' : ''} · positif = edge réel confirmé
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: '22px', fontWeight: '700',
+                  color: metr.avg_clv >= 0 ? '#16A34A' : '#DC2626',
+                }}>
+                  {metr.avg_clv >= 0 ? '+' : ''}{metr.avg_clv.toFixed(2)}%
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* Par marché */}
           {data?.by_market?.length > 0 && (
-            <Card>
+            <Card style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
                 Par marché
               </div>
               {data.by_market.map((m, i) => (
                 <div key={m.market} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   paddingBottom: '12px', marginBottom: '12px',
                   borderBottom: i < data.by_market.length - 1 ? '1px solid #2E2E2E' : 'none',
                 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: '500', color: '#F5F5F5' }}>{m.market}</div>
+                      <div style={{ fontSize: '12px', color: '#666666', marginTop: '2px' }}>
+                        {m.total} paris · {m.won}G {m.lost}P · {(m.win_rate * 100).toFixed(0)}% win
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '700', color: m.roi == null ? '#666666' : m.roi >= 0 ? '#16A34A' : '#DC2626' }}>
+                        {m.roi == null ? '—' : `${m.roi >= 0 ? '+' : ''}${(m.roi * 100).toFixed(1)}%`}
+                      </div>
+                      {m.avg_clv != null && (
+                        <div style={{ fontSize: '11px', color: m.avg_clv >= 0 ? '#16A34A' : '#DC2626', marginTop: '2px' }}>
+                          CLV {m.avg_clv >= 0 ? '+' : ''}{m.avg_clv.toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {/* Par ligue */}
+          {data?.by_league?.length > 0 && (
+            <Card>
+              <div style={{ fontSize: '15px', fontWeight: '600', color: '#F5F5F5', marginBottom: '16px' }}>
+                Par ligue
+              </div>
+              {data.by_league.map((l, i) => (
+                <div key={l.league} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  paddingBottom: '12px', marginBottom: '12px',
+                  borderBottom: i < data.by_league.length - 1 ? '1px solid #2E2E2E' : 'none',
+                }}>
                   <div>
-                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#F5F5F5' }}>{m.market_label}</div>
-                    <div style={{ fontSize: '12px', color: '#666666', marginTop: '2px' }}>{m.bets} paris</div>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#F5F5F5' }}>{l.league}</div>
+                    <div style={{ fontSize: '12px', color: '#666666', marginTop: '2px' }}>
+                      {l.total} paris · {l.won}G {l.lost}P
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '15px', fontWeight: '700', color: m.roi == null ? '#666666' : m.roi >= 0 ? '#16A34A' : '#DC2626' }}>
-                      {m.roi == null ? '—' : `${m.roi >= 0 ? '+' : ''}${(m.roi * 100).toFixed(1)}%`}
+                    <div style={{ fontSize: '15px', fontWeight: '700', color: l.roi == null ? '#666666' : l.roi >= 0 ? '#16A34A' : '#DC2626' }}>
+                      {l.roi == null ? '—' : `${l.roi >= 0 ? '+' : ''}${(l.roi * 100).toFixed(1)}%`}
                     </div>
-                    <Badge variant={m.is_active ? 'success' : 'danger'} style={{ fontSize: '10px', marginTop: '4px' }}>
-                      {m.is_active ? 'Actif' : 'Inactif'}
-                    </Badge>
+                    <div style={{ fontSize: '11px', color: '#555555', marginTop: '2px' }}>
+                      {l.profit >= 0 ? '+' : ''}{(l.profit || 0).toFixed(2)}€
+                    </div>
                   </div>
                 </div>
               ))}
