@@ -18,9 +18,15 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
-      window.location.href = '/login'
+      window.location.reload()
     }
-    return Promise.reject(error.response?.data || error)
+    const data = error.response?.data || {}
+    // Normalise le message d'erreur en un champ unique peu importe le format backend
+    if (!data.error) {
+      const msg = data.detail?.message || data.detail || data.message || 'Erreur inconnue'
+      data.error = { message: typeof msg === 'string' ? msg : JSON.stringify(msg) }
+    }
+    return Promise.reject(data)
   }
 )
 

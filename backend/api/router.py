@@ -99,6 +99,24 @@ def creer_app(env: str = None) -> FastAPI:
     app.include_router(systeme.router, prefix="/api/v1/system", tags=["system"])
     app.include_router(analyse.router, prefix="/api/v1/analyse", tags=["analyse"])
 
+    from fastapi import HTTPException as FastAPIHTTPException
+
+    @app.exception_handler(FastAPIHTTPException)
+    async def http_exception_handler(request, exc):
+        if isinstance(exc.detail, dict):
+            code = exc.detail.get("code", f"HTTP_{exc.status_code}")
+            message = exc.detail.get("message", str(exc.detail))
+        else:
+            code = f"HTTP_{exc.status_code}"
+            message = str(exc.detail)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "success": False,
+                "error": {"code": code, "message": message},
+            },
+        )
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):
         from backend.core.exceptions import CerveauException

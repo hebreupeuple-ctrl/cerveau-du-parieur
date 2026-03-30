@@ -110,7 +110,7 @@ function PronosticCard({ pronostic, onPlace, onIgnore }) {
               />
               <div style={{ fontSize: '13px', color: '#A0A0A0' }}>
                 Gain : <span style={{ color: '#16A34A', fontWeight: '600' }}>
-                  {(mise * pronostic.reference_odds).toFixed(2)}€
+                  +{(mise * (pronostic.reference_odds - 1)).toFixed(2)}€
                 </span>
               </div>
             </div>
@@ -154,6 +154,7 @@ export default function Aujourd_hui() {
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
   const [syncStatus, setSyncStatus] = useState(null)
+  const [actionError, setActionError] = useState(null)
 
   const charger = async () => {
     setLoading(true)
@@ -205,7 +206,7 @@ export default function Aujourd_hui() {
   }, [])
 
   const handlePlace = async (id, stake, odds) => {
-    // Mise à jour optimiste de la bankroll avant la réponse serveur
+    setActionError(null)
     const bankrollAvant = data?.bankroll_summary?.current
     if (bankrollAvant != null) {
       setData(prev => ({
@@ -220,28 +221,28 @@ export default function Aujourd_hui() {
       })
       charger()
     } catch (e) {
-      // Rollback optimiste si l'API échoue
       if (bankrollAvant != null) {
         setData(prev => ({
           ...prev,
           bankroll_summary: { ...prev.bankroll_summary, current: bankrollAvant },
         }))
       }
-      alert('Erreur lors de la validation du pari')
+      setActionError(e?.error?.message || e?.detail || 'Impossible de valider le pari')
     }
   }
 
   const handleIgnore = async (id) => {
+    setActionError(null)
     try {
       await api.post(`/pronostics/${id}/ignore`, {})
       charger()
     } catch (e) {
-      alert('Erreur')
+      setActionError(e?.error?.message || e?.detail || 'Impossible d\'ignorer ce pronostic')
     }
   }
 
   const pronostics = data?.pronostics || []
-  const bankroll = data?.bankroll_summary?.current || 150
+  const bankroll = data?.bankroll_summary?.current ?? 150
   const prochainMatch = data?.prochain_match
 
   return (
@@ -288,6 +289,21 @@ export default function Aujourd_hui() {
           </div>
         </div>
       </div>
+
+      {actionError && (
+        <Card
+          style={{
+            marginBottom: '16px',
+            padding: '12px 14px',
+            backgroundColor: '#2A1616',
+            borderColor: '#6B1F1F',
+          }}
+        >
+          <p style={{ fontSize: '12px', color: '#FCA5A5', lineHeight: '1.4' }}>
+            {actionError}
+          </p>
+        </Card>
+      )}
 
       {syncStatus && (
         <Card

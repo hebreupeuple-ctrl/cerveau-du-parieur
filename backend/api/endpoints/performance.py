@@ -28,8 +28,15 @@ async def performance_summary(
 ):
     user_id = current_user["id"]
 
+    if period == "week":
+        date_filter = "AND placed_at >= datetime('now', '-7 days')"
+    elif period == "month":
+        date_filter = "AND placed_at >= datetime('now', '-30 days')"
+    else:
+        date_filter = ""
+
     stats = conn.execute(
-        """
+        f"""
         SELECT
             COUNT(*) as total_bets,
             SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as bets_won,
@@ -37,10 +44,11 @@ async def performance_summary(
             SUM(CASE WHEN status='void' THEN 1 ELSE 0 END) as bets_void,
             SUM(CASE WHEN status='ignored' THEN 1 ELSE 0 END) as bets_ignored,
             SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END) as total_staked,
-            SUM(CASE WHEN status='won' THEN actual_profit ELSE 0 END) as total_profit
+            SUM(CASE WHEN status IN ('won', 'lost') THEN actual_profit ELSE 0 END) as total_profit
         FROM pronostics
         WHERE user_id = ?
         AND status IN ('won', 'lost', 'void', 'ignored')
+        {date_filter}
         """,
         (user_id,),
     ).fetchone()

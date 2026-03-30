@@ -30,6 +30,10 @@ class RegisterRequest(BaseModel):
     kelly_fraction: float = Field(default=0.125, gt=0, le=1)
 
 
+class UpdateProfileRequest(BaseModel):
+    kelly_fraction: float = Field(gt=0, le=1)
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -244,6 +248,20 @@ async def me(current_user: dict = Depends(get_current_user)):
     })
 
 
+@router.put("/me")
+async def update_me(
+    req: UpdateProfileRequest,
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    conn.execute(
+        "UPDATE users SET kelly_fraction = ? WHERE id = ?",
+        (req.kelly_fraction, current_user["id"]),
+    )
+    conn.commit()
+    return reponse_succes({"kelly_fraction": req.kelly_fraction})
+
+
 @router.post("/logout")
 async def logout(
     current_user: dict = Depends(get_current_user),
@@ -261,4 +279,4 @@ async def logout(
         (current_user["id"], token_hash),
     )
     conn.commit()
-    return JSONResponse(status_code=204, content=None)
+    return reponse_succes({"logged_out": True})

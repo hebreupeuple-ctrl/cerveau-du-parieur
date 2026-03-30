@@ -10,6 +10,8 @@ export default function Parametres({ onLogout }) {
   const [profile, setProfile] = useState(null)
   const [systemStatus, setSystemStatus] = useState(null)
   const [modelHealth, setModelHealth] = useState(null)
+  const [kellySaving, setKellySaving] = useState(false)
+  const [kellyFeedback, setKellyFeedback] = useState('')
   const [isSyncingLeagues, setIsSyncingLeagues] = useState(false)
   const [leagueSyncFeedback, setLeagueSyncFeedback] = useState('')
   const [isBackfilling, setIsBackfilling] = useState(false)
@@ -22,6 +24,21 @@ export default function Parametres({ onLogout }) {
     { id: '1/6', label: '1/6 — Conservateur', value: 0.167 },
     { id: '1/4', label: '1/4 — Modéré', value: 0.25 },
   ]
+
+  const sauvegarderKelly = async (fractionId, value) => {
+    setKelly(fractionId)
+    setKellySaving(true)
+    setKellyFeedback('')
+    try {
+      await api.put('/auth/me', { kelly_fraction: value })
+      setKellyFeedback('Fraction Kelly sauvegardée')
+    } catch (e) {
+      setKellyFeedback('Impossible de sauvegarder')
+    } finally {
+      setKellySaving(false)
+      setTimeout(() => setKellyFeedback(''), 3000)
+    }
+  }
 
   const chargerDonnees = async () => {
     try {
@@ -165,8 +182,8 @@ export default function Parametres({ onLogout }) {
       icon: User,
       items: [
         { label: 'Email', value: profile?.email || '—' },
-        { label: 'Bankroll initiale', value: profile ? `${profile.initial_bankroll.toFixed(2)}€` : '—' },
-        { label: 'Bankroll actuelle', value: profile ? `${profile.current_bankroll.toFixed(2)}€` : '—' },
+        { label: 'Bankroll initiale', value: profile ? `${(profile.initial_bankroll ?? 0).toFixed(2)}€` : '—' },
+        { label: 'Bankroll actuelle', value: profile ? `${(profile.current_bankroll ?? 0).toFixed(2)}€` : '—' },
       ]
     },
     {
@@ -205,14 +222,22 @@ export default function Parametres({ onLogout }) {
       </div>
 
       <Card style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5', marginBottom: '14px' }}>
-          Fraction Kelly
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ fontSize: '14px', fontWeight: '600', color: '#F5F5F5' }}>
+            Fraction Kelly
+          </div>
+          {kellyFeedback && (
+            <span style={{ fontSize: '11px', color: kellyFeedback.includes('Impossible') ? '#FCA5A5' : '#4ADE80' }}>
+              {kellyFeedback}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {fractions.map(f => (
             <button
               key={f.id}
-              onClick={() => setKelly(f.id)}
+              onClick={() => sauvegarderKelly(f.id, f.value)}
+              disabled={kellySaving}
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
