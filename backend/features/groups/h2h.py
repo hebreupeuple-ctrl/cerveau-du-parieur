@@ -35,12 +35,15 @@ def calculer_features_h2h(
             "h2h_dominance_score": 0.0,
         }
 
-    home_wins = 0.0
-    draws = 0.0
-    away_wins = 0.0
-    total_goals = 0.0
-    btts_count = 0.0
-    over25_count = 0.0
+    # Compteurs entiers (colonnes INTEGER en DB)
+    home_wins = 0
+    draws = 0
+    away_wins = 0
+
+    # Accumulateurs pondérés pour les rates (colonnes REAL en DB)
+    total_goals_w = 0.0
+    btts_count_w = 0.0
+    over25_count_w = 0.0
     total_weight = 0.0
 
     for match in matchs:
@@ -55,37 +58,53 @@ def calculer_features_h2h(
 
         if hg > ag:
             if est_home_domicile:
-                home_wins += weight
+                home_wins += 1
             else:
-                away_wins += weight
+                away_wins += 1
         elif hg < ag:
             if est_home_domicile:
-                away_wins += weight
+                away_wins += 1
             else:
-                home_wins += weight
+                home_wins += 1
         else:
-            draws += weight
+            draws += 1
 
-        total_goals += tg * weight
+        total_goals_w += tg * weight
         if hg > 0 and ag > 0:
-            btts_count += weight
+            btts_count_w += weight
         if tg > 2:
-            over25_count += weight
+            over25_count_w += weight
 
         total_weight += weight
 
     if total_weight == 0.0:
         total_weight = 1.0
 
-    dominance = (home_wins - away_wins) / total_weight
+    n_matchs = len(matchs)
+    # Dominance pondérée par le decay (REAL) — matchs récents comptent plus
+    dominance_w = 0.0
+    total_weight2 = 0.0
+    for match in matchs:
+        hg = match["home_goals"] or 0
+        ag = match["away_goals"] or 0
+        days_ago = max(0.0, (max_time - (match["match_timestamp"] or max_time)) / 86400.0)
+        weight = math.exp(-math.log(2) * days_ago / _DECAY_HALFLIFE_DAYS)
+        est_home_domicile = match["home_team_id"] == home_team_id
+        if hg > ag:
+            dominance_w += weight if est_home_domicile else -weight
+        elif hg < ag:
+            dominance_w += -weight if est_home_domicile else weight
+        total_weight2 += weight
+
+    dominance = dominance_w / total_weight2 if total_weight2 > 0 else 0.0
 
     return {
-        "h2h_home_wins_5": round(home_wins, 3),
-        "h2h_draws_5": round(draws, 3),
-        "h2h_away_wins_5": round(away_wins, 3),
-        "h2h_goals_avg_5": round(total_goals / total_weight, 3),
-        "h2h_btts_rate_5": round(btts_count / total_weight, 3),
-        "h2h_over25_rate_5": round(over25_count / total_weight, 3),
+        "h2h_home_wins_5": home_wins,
+        "h2h_draws_5": draws,
+        "h2h_away_wins_5": away_wins,
+        "h2h_goals_avg_5": round(total_goals_w / total_weight, 3),
+        "h2h_btts_rate_5": round(btts_count_w / total_weight, 3),
+        "h2h_over25_rate_5": round(over25_count_w / total_weight, 3),
         "h2h_dominance_score": round(dominance, 3),
     }
 
