@@ -21,7 +21,6 @@ async def lifespan(app: FastAPI):
     logger.info("Demarrage du Cerveau du Parieur")
 
     from backend.database.connection import obtenir_connexion
-    from backend.database.migrations import appliquer_migrations
     from backend.scheduler.runtime import AutomationScheduler
 
     db_path = settings.DATABASE_PATH
@@ -36,28 +35,35 @@ async def lifespan(app: FastAPI):
         },
     )
 
+    # Ouvrir la connexion DB (rapide)
     conn = obtenir_connexion()
-    appliquer_migrations(conn)
-    logger.info("Base de donnees initialisee")
 
-    # Réentraîner si le modèle stocké est obsolète (mauvais nombre de features)
-    # Lancé en tâche de fond pour ne pas bloquer le démarrage du serveur
-    from backend.models.trainer import ModelTrainer
-    trainer = ModelTrainer(conn)
-    trainer._charger_modeles()
-    if not trainer.modeles:
-        logger.info("Modele absent — réentraînement en arrière-plan")
-        async def _retrain_bg():
-            try:
+    # Migrations + modèles en arrière-plan pour ne pas bloquer le healthcheck
+    async def _init_bg():
+        try:
+            from backend.database.migrations import appliquer_migrations
+            await asyncio.to_thread(appliquer_migrations, conn)
+            logger.info("Base de donnees initialisee")
+        except Exception as exc:
+            logger.error_ctx("Echec migrations", context={"erreur": str(exc)})
+            return
+
+        try:
+            from backend.models.trainer import ModelTrainer
+            trainer = ModelTrainer(conn)
+            await asyncio.to_thread(trainer._charger_modeles)
+            if not trainer.modeles:
+                logger.info("Modele absent — réentraînement en arrière-plan")
                 from backend.scheduler.tasks.automation import entrainer_modele
                 await entrainer_modele()
                 logger.info("Réentraînement au démarrage terminé")
-            except Exception as exc:
-                logger.error_ctx(
-                    "Echec réentraînement au démarrage",
-                    context={"erreur": str(exc)},
-                )
-        asyncio.create_task(_retrain_bg())
+        except Exception as exc:
+            logger.error_ctx(
+                "Echec chargement/réentraînement modele",
+                context={"erreur": str(exc)},
+            )
+
+    asyncio.create_task(_init_bg())
 
     scheduler = AutomationScheduler()
     app.state.scheduler = scheduler
