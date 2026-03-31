@@ -4,15 +4,17 @@ import {
   Calendar,
   BarChart2,
   Search,
-  Settings
+  Settings,
+  Shield,
 } from 'lucide-react'
 
 const navItems = [
   { id: 'today', label: "Aujourd'hui", Icon: Calendar },
-  { id: 'performance', label: 'Performance', Icon: TrendingUp },
+  { id: 'performance', label: 'Perf.', Icon: TrendingUp },
   { id: 'historique', label: 'Historique', Icon: BarChart2 },
   { id: 'analyse', label: 'Analyse', Icon: Search },
-  { id: 'parametres', label: 'Paramètres', Icon: Settings },
+  { id: 'parametres', label: 'Réglages', Icon: Settings },
+  { id: 'admin', label: 'Admin', Icon: Shield },
 ]
 
 export default function BottomNav({ active, onChange }) {

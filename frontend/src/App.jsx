@@ -7,6 +7,7 @@ import Performance from './screens/Performance.jsx'
 import Historique from './screens/Historique.jsx'
 import Analyse from './screens/Analyse.jsx'
 import Parametres from './screens/Parametres.jsx'
+import Admin from './screens/Admin.jsx'
 import Login from './screens/Login.jsx'
 
 const screens = {
@@ -15,6 +16,7 @@ const screens = {
   historique: Historique,
   analyse: Analyse,
   parametres: Parametres,
+  admin: Admin,
 }
 
 function AppContent() {

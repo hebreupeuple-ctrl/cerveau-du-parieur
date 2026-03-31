@@ -25,28 +25,56 @@ async def health():
 @router.get("/status")
 async def status():
     from backend.database.connection import obtenir_connexion
-    from backend.scheduler.tasks.automation import (
-        obtenir_resume_features_historiques,
-    )
+    from backend.scheduler.tasks.automation import obtenir_resume_features_historiques
 
     conn = obtenir_connexion()
 
-    cursor = conn.execute("SELECT COUNT(*) FROM matches")
-    total_matchs = cursor.fetchone()[0]
+    # Statistiques DB de base
+    total_matchs    = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+    total_ligues    = conn.execute("SELECT COUNT(*) FROM leagues").fetchone()[0]
+    ligues_actives  = conn.execute("SELECT COUNT(*) FROM leagues WHERE is_active=1").fetchone()[0]
+    matchs_a_venir  = conn.execute("SELECT COUNT(*) FROM matches WHERE status='upcoming'").fetchone()[0]
+    matchs_complets = conn.execute("SELECT COUNT(*) FROM matches WHERE status='complete'").fetchone()[0]
+    total_features  = conn.execute("SELECT COUNT(*) FROM match_features").fetchone()[0]
+    total_odds      = conn.execute("SELECT COUNT(*) FROM odds").fetchone()[0]
 
-    cursor = conn.execute("SELECT COUNT(*) FROM leagues")
-    total_ligues = cursor.fetchone()[0]
+    # Qualité données HT
+    ht_avec = conn.execute(
+        "SELECT COUNT(*) FROM matches WHERE status='complete' AND home_goals_ht IS NOT NULL"
+    ).fetchone()[0]
+    ht_pct = round(ht_avec / matchs_complets * 100, 1) if matchs_complets else 0
 
-    cursor = conn.execute("SELECT COUNT(*) FROM leagues WHERE is_active = 1")
-    ligues_actives = cursor.fetchone()[0]
+    # Pronostics par statut
+    pronos = {}
+    for row in conn.execute(
+        "SELECT status, COUNT(*) as n FROM pronostics GROUP BY status"
+    ).fetchall():
+        pronos[row["status"]] = row["n"]
 
-    cursor = conn.execute(
-        "SELECT COUNT(*) FROM matches WHERE status = 'upcoming'"
-    )
-    matchs_a_venir = cursor.fetchone()[0]
+    # Modèle ML actif
+    modele = conn.execute(
+        """SELECT version, trained_at, total_matches_trained,
+                  brier_score_over25, auc_roc_over25
+           FROM model_versions WHERE is_active=1 LIMIT 1"""
+    ).fetchone()
+    modele_data = dict(modele) if modele else {}
 
-    cursor = conn.execute("SELECT COUNT(*) FROM match_features")
-    total_features = cursor.fetchone()[0]
+    # Jobs scheduler — 20 derniers (nettoyage des faux 'running' > 2h)
+    conn.execute("""
+        UPDATE scheduler_jobs SET status='failed', error_message='Interrompu (app restart)'
+        WHERE status='running'
+        AND started_at < datetime('now', '-2 hours')
+    """)
+    conn.commit()
+
+    jobs = conn.execute(
+        """SELECT job_name, status, started_at, completed_at,
+                  execution_time_ms, error_message, result_summary_json
+           FROM scheduler_jobs
+           ORDER BY started_at DESC LIMIT 30"""
+    ).fetchall()
+    jobs_list = [dict(j) for j in jobs]
+
     historical_features = obtenir_resume_features_historiques(conn)
 
     return JSONResponse(
@@ -55,12 +83,21 @@ async def status():
             "data": {
                 "system_mode": "active",
                 "api_status": "operational",
-                "total_ligues": total_ligues,
-                "ligues_actives": ligues_actives,
-                "total_matchs": total_matchs,
-                "matchs_a_venir": matchs_a_venir,
-                "total_features": total_features,
-                **historical_features,
+                "db": {
+                    "total_ligues": total_ligues,
+                    "ligues_actives": ligues_actives,
+                    "total_matchs": total_matchs,
+                    "matchs_a_venir": matchs_a_venir,
+                    "matchs_complets": matchs_complets,
+                    "total_features": total_features,
+                    "total_odds": total_odds,
+                    "ht_coverage_pct": ht_pct,
+                    "ht_avec_donnees": ht_avec,
+                },
+                "pronostics": pronos,
+                "modele": modele_data,
+                "features_historiques": historical_features,
+                "jobs": jobs_list,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
