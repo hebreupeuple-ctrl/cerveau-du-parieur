@@ -590,6 +590,44 @@ async def resoudre_pronostic(
     })
 
 
+def _calculer_resultat_marche(
+    market: str,
+    home_goals, away_goals,
+    home_goals_ht=None, away_goals_ht=None,
+):
+    """Retourne True si la prédiction était correcte, False sinon, None si match non terminé."""
+    if home_goals is None or away_goals is None:
+        return None
+    total = home_goals + away_goals
+    if market == "over15":     return total > 1
+    if market == "over25":     return total > 2
+    if market == "over35":     return total > 3
+    if market == "over45":     return total > 4
+    if market == "under25":    return total < 3
+    if market == "btts":       return home_goals > 0 and away_goals > 0
+    if market == "ng":         return home_goals == 0 and away_goals == 0
+    if market == "dc_1x":      return home_goals >= away_goals
+    if market == "dc_x2":      return away_goals >= home_goals
+    if market == "gg_over25":  return home_goals > 0 and away_goals > 0 and total > 2
+    if market == "1x2_home":   return home_goals > away_goals
+    if market == "1x2_draw":   return home_goals == away_goals
+    if market == "1x2_away":   return away_goals > home_goals
+    if home_goals_ht is None or away_goals_ht is None:
+        return None
+    if market == "1x2_ht_home": return home_goals_ht > away_goals_ht
+    if market == "1x2_ht_draw": return home_goals_ht == away_goals_ht
+    if market == "1x2_ht_away": return away_goals_ht > home_goals_ht
+    if market == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
+    return None
+
+
+_RAISON_LABELS = {
+    "match_termine_sans_placement": "Match terminé sans placement",
+    "superseded_by_resync":         "Remplacé par resync",
+    "superseded":                   "Remplacé",
+}
+
+
 @router.get("/history")
 async def historique_pronostics(
     status: str = None,
@@ -600,7 +638,7 @@ async def historique_pronostics(
 ):
     """
     Retourne l'historique des pronostics de l'utilisateur.
-    status: filtre optionnel (won|lost|placed|pending|ignored|void)
+    status: filtre optionnel (won|lost|placed|pending|ignored|void|manques)
     """
     MARKET_LABELS = {
         "over15":    "Plus de 1.5 buts",
@@ -625,6 +663,9 @@ async def historique_pronostics(
     if status == "en_cours":
         status_clause = "AND p.status IN ('pending', 'placed')"
         params_status = []
+    elif status == "manques":
+        status_clause = "AND p.status IN ('ignored', 'superseded')"
+        params_status = []
     elif status and status in ("won", "lost", "void", "placed", "pending", "ignored", "superseded"):
         status_clause = "AND p.status = ?"
         params_status = [status]
@@ -647,7 +688,9 @@ async def historique_pronostics(
     rows = conn.execute(
         f"""
         SELECT p.*,
-               m.match_timestamp, m.home_goals, m.away_goals, m.status as match_status,
+               m.match_timestamp, m.home_goals, m.away_goals,
+               m.home_goals_ht, m.away_goals_ht,
+               m.status as match_status,
                t1.name as home_team, t2.name as away_team,
                l.name as league_name
         FROM pronostics p
@@ -672,6 +715,7 @@ async def historique_pronostics(
             SUM(CASE WHEN p.status = 'lost' THEN 1 ELSE 0 END) as lost,
             SUM(CASE WHEN p.status IN ('placed', 'pending') THEN 1 ELSE 0 END) as en_cours,
             SUM(CASE WHEN p.status = 'void' THEN 1 ELSE 0 END) as void,
+            SUM(CASE WHEN p.status IN ('ignored', 'superseded') THEN 1 ELSE 0 END) as manques,
             SUM(CASE WHEN p.status IN ('won', 'lost') THEN p.actual_profit ELSE 0 END) as profit_total,
             SUM(CASE WHEN p.status IN ('won', 'lost', 'void') THEN p.actual_stake ELSE 0 END) as mises_totales
         FROM pronostics p
@@ -694,6 +738,15 @@ async def historique_pronostics(
 
     items = []
     for p in rows:
+        raison_brute = p["ignore_reason"] or p["superseded_reason"] or None
+        raison_label = _RAISON_LABELS.get(raison_brute, raison_brute)
+        prediction_correct = _calculer_resultat_marche(
+            p["market"],
+            p["home_goals"],
+            p["away_goals"],
+            p["home_goals_ht"],
+            p["away_goals_ht"],
+        )
         item = {
             "id": p["id"],
             "match": {
@@ -711,6 +764,8 @@ async def historique_pronostics(
             "market": p["market"],
             "market_label": MARKET_LABELS.get(p["market"], p["market"]),
             "status": p["status"],
+            "raison": raison_label,
+            "prediction_correct": prediction_correct,
             "confidence_score": p["confidence_score"],
             "model_probability": p["model_probability"],
             "reference_odds": p["reference_odds"],
@@ -739,6 +794,7 @@ async def historique_pronostics(
             "lost": stats["lost"] or 0,
             "en_cours": stats["en_cours"] or 0,
             "void": stats["void"] or 0,
+            "manques": stats["manques"] or 0,
             "profit_total": round(profit, 2),
             "mises_totales": round(mises, 2),
             "win_rate": win_rate,

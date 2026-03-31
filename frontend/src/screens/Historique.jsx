@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { TrendingUp, TrendingDown, Clock, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Clock, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, RefreshCw, EyeOff } from 'lucide-react'
 import Card from '../components/shared/Card.jsx'
 import Skeleton from '../components/shared/Skeleton.jsx'
 import EmptyState from '../components/shared/EmptyState.jsx'
@@ -12,6 +12,7 @@ const FILTERS = [
   { id: 'won',      label: 'Gagnés' },
   { id: 'lost',     label: 'Perdus' },
   { id: 'void',     label: 'Annulés' },
+  { id: 'manques',  label: 'Manqués' },
 ]
 
 const MARKET_LABELS = {
@@ -27,9 +28,11 @@ const MARKET_LABELS = {
 }
 
 function StatusIcon({ status, size = 16 }) {
-  if (status === 'won')   return <CheckCircle size={size} color="#16A34A" />
-  if (status === 'lost')  return <XCircle size={size} color="#DC2626" />
-  if (status === 'void')  return <MinusCircle size={size} color="#6B7280" />
+  if (status === 'won')        return <CheckCircle size={size} color="#16A34A" />
+  if (status === 'lost')       return <XCircle size={size} color="#DC2626" />
+  if (status === 'void')       return <MinusCircle size={size} color="#6B7280" />
+  if (status === 'ignored' || status === 'superseded')
+                               return <EyeOff size={size} color="#6B7280" />
   return <Clock size={size} color="#D97706" />
 }
 
@@ -46,10 +49,11 @@ function StatBox({ label, value, sub, color = '#F5F5F5' }) {
 function PronosticRow({ item }) {
   const [open, setOpen] = useState(false)
 
-  const isWon  = item.status === 'won'
-  const isLost = item.status === 'lost'
-  const isVoid = item.status === 'void'
-  const enCours = item.status === 'placed' || item.status === 'pending'
+  const isWon    = item.status === 'won'
+  const isLost   = item.status === 'lost'
+  const isVoid   = item.status === 'void'
+  const isManque = item.status === 'ignored' || item.status === 'superseded'
+  const enCours  = item.status === 'placed' || item.status === 'pending'
 
   const profitColor = isWon ? '#16A34A' : isLost ? '#DC2626' : '#6B7280'
   const profitStr = item.actual_profit != null
@@ -102,6 +106,22 @@ function PronosticRow({ item }) {
               <div style={{ fontSize: '11px', color: '#D97706', fontWeight: '600' }}>
                 {item.status === 'placed' ? 'Misé' : 'En attente'}
               </div>
+            ) : isManque ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                {item.prediction_correct === true && (
+                  <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: '700' }}>
+                    ✓ Aurait gagné
+                  </div>
+                )}
+                {item.prediction_correct === false && (
+                  <div style={{ fontSize: '11px', color: '#6B7280', fontWeight: '600' }}>
+                    ✗ Aurait perdu
+                  </div>
+                )}
+                {item.prediction_correct == null && (
+                  <div style={{ fontSize: '11px', color: '#555' }}>Résultat inconnu</div>
+                )}
+              </div>
             ) : null}
             {item.actual_stake != null && (
               <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>
@@ -117,26 +137,35 @@ function PronosticRow({ item }) {
 
       {/* Détail expandable */}
       {open && (
-        <div style={{
-          borderTop: '1px solid #333333',
-          padding: '12px 16px',
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '10px',
-        }}>
-          {[
-            { label: 'Probabilité modèle', value: `${Math.round((item.model_probability || 0) * 100)}%` },
-            { label: 'Cote recommandée',   value: formatCote(item.reference_odds) },
-            { label: 'Cote jouée',         value: formatCote(item.actual_odds) },
-            { label: 'Valeur espérée',     value: item.expected_value != null ? `+${(item.expected_value * 100).toFixed(1)}%` : '—' },
-            { label: 'Confiance',          value: item.confidence_score != null ? `${Math.round(item.confidence_score * 100)}%` : '—' },
-            { label: 'Mise conseillée',    value: item.recommended_stake != null ? `${item.recommended_stake.toFixed(2)}€` : '—' },
-          ].map(({ label, value }) => (
-            <div key={label}>
-              <div style={{ fontSize: '10px', color: '#555555', marginBottom: '2px' }}>{label}</div>
-              <div style={{ fontSize: '13px', color: '#CCCCCC', fontWeight: '600' }}>{value}</div>
+        <div style={{ borderTop: '1px solid #333333', padding: '12px 16px' }}>
+          {isManque && item.raison && (
+            <div style={{
+              marginBottom: '10px',
+              padding: '6px 10px',
+              backgroundColor: '#1A1A1A',
+              borderRadius: '6px',
+              border: '1px solid #333',
+              fontSize: '11px',
+              color: '#888',
+            }}>
+              Raison : {item.raison}
             </div>
-          ))}
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {[
+              { label: 'Probabilité modèle', value: `${Math.round((item.model_probability || 0) * 100)}%` },
+              { label: 'Cote recommandée',   value: formatCote(item.reference_odds) },
+              { label: 'Cote jouée',         value: formatCote(item.actual_odds) },
+              { label: 'Valeur espérée',     value: item.expected_value != null ? `+${(item.expected_value * 100).toFixed(1)}%` : '—' },
+              { label: 'Confiance',          value: item.confidence_score != null ? `${Math.round(item.confidence_score * 100)}%` : '—' },
+              { label: 'Mise conseillée',    value: item.recommended_stake != null ? `${item.recommended_stake.toFixed(2)}€` : '—' },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ fontSize: '10px', color: '#555555', marginBottom: '2px' }}>{label}</div>
+                <div style={{ fontSize: '13px', color: '#CCCCCC', fontWeight: '600' }}>{value}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -213,9 +242,9 @@ export default function Historique() {
             />
             <div style={{ width: '1px', backgroundColor: '#333' }} />
             <StatBox
-              label="En cours"
-              value={stats.en_cours}
-              color="#D97706"
+              label="Manqués"
+              value={stats.manques ?? 0}
+              color="#6B7280"
             />
             <div style={{ width: '1px', backgroundColor: '#333' }} />
             <StatBox
@@ -282,6 +311,11 @@ export default function Historique() {
             {f.id === 'en_cours' && stats && stats.en_cours > 0 && (
               <span style={{ marginLeft: '4px', color: filter === f.id ? '#FFD580' : '#D97706' }}>
                 {stats.en_cours}
+              </span>
+            )}
+            {f.id === 'manques' && stats && stats.manques > 0 && (
+              <span style={{ marginLeft: '4px', color: filter === f.id ? '#CCC' : '#6B7280' }}>
+                {stats.manques}
               </span>
             )}
           </button>
