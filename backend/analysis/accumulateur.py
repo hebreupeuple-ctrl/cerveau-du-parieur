@@ -239,6 +239,21 @@ class GenerateurPronostics:
             else:
                 result[k] = v_dc
 
+        # Marchés mi-temps depuis ML si disponibles
+        if "ml_prob_ht_home_win" in pred_ml:
+            result["prob_ht_home_win"] = round(
+                pred_ml["ml_prob_ht_home_win"] * 0.6
+                + pred_dc.get("prob_home_win", 0.33) * 0.4, 4
+            )
+            result["prob_ht_draw"] = round(
+                pred_ml.get("ml_prob_ht_draw", pred_dc.get("prob_draw", 0.33)) * 0.6
+                + pred_dc.get("prob_draw", 0.33) * 0.4, 4
+            )
+            result["prob_ht_away_win"] = round(
+                pred_ml.get("ml_prob_ht_away_win", pred_dc.get("prob_away_win", 0.33)) * 0.6
+                + pred_dc.get("prob_away_win", 0.33) * 0.4, 4
+            )
+
         # Marchés dérivés — calculés depuis les probabilités fusionnées
         result["prob_under25"] = round(1.0 - result.get("prob_over25", 0.5), 4)
         result["prob_ng"] = round(1.0 - result.get("prob_btts", 0.5), 4)

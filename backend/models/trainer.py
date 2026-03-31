@@ -65,13 +65,14 @@ FEATURES_COLONNES = [
     "home_corners_avg_5m", "home_possession_avg_5m",
     "home_conversion_rate_5m", "home_shot_efficiency_5m",
     "home_goals_ht_avg_5m", "home_over15_ht_rate_5m",
+    "home_ht_win_rate_5m", "home_ht_draw_rate_5m",
     "home_fatigue_score",
     "away_shots_avg_5m", "away_shots_on_target_avg_5m",
     "away_corners_avg_5m", "away_possession_avg_5m",
     "away_conversion_rate_5m", "away_shot_efficiency_5m",
     "away_goals_ht_avg_5m", "away_over15_ht_rate_5m",
+    "away_ht_win_rate_5m", "away_ht_draw_rate_5m",
     "away_fatigue_score",
-    # Arbitre supprimé : 100% NULL en base — ne contribuait qu'au bruit
 ]
 
 # Feature virtuelle calculée (pas une colonne DB) : ajoutée après la boucle FEATURES_COLONNES
@@ -116,14 +117,15 @@ FEATURES_INTERACTION = [
 FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTERACTION
 
 MARCHES = {
-    "over15":   "over15",
-    "over25":   "over25",
-    "btts":     "btts",
-    "home_win": "home_win",  # 1x2 : victoire domicile
-    "draw":     "draw",      # 1x2 : match nul
-    "away_win": "away_win",  # 1x2 : victoire extérieur
-    # over35 : colonne DB toujours NULL (FootyStats ne remplit pas ce champ)
-    # over15_ht : données mi-temps < 5% de disponibilité → prédictions non fiables
+    "over15":      "over15",
+    "over25":      "over25",
+    "btts":        "btts",
+    "home_win":    "home_win",
+    "draw":        "draw",
+    "away_win":    "away_win",
+    "ht_home_win": "ht_home_win",  # 1x2 mi-temps : victoire domicile à la pause
+    "ht_draw":     "ht_draw",      # 1x2 mi-temps : nul à la pause
+    "ht_away_win": "ht_away_win",  # 1x2 mi-temps : victoire extérieur à la pause
 }
 
 
@@ -274,11 +276,22 @@ class ModelTrainer:
             labels["over15"].append(int(row["over15"] or 0))
             labels["over25"].append(int(row["over25"] or 0))
             labels["btts"].append(int(row["btts"] or 0))
-            # 1x2 : dérivé de result_1x2 ('1' = home, 'X' = draw, '2' = away)
+            # 1x2 FT
             r1x2 = row["result_1x2"]
             labels["home_win"].append(1 if r1x2 == "1" else 0)
             labels["draw"].append(1 if r1x2 == "X" else 0)
             labels["away_win"].append(1 if r1x2 == "2" else 0)
+            # 1x2 mi-temps : dérivé de home_goals_ht / away_goals_ht
+            hg_ht = row["home_goals_ht"]
+            ag_ht = row["away_goals_ht"]
+            if hg_ht is not None and ag_ht is not None:
+                labels["ht_home_win"].append(1 if hg_ht > ag_ht else 0)
+                labels["ht_draw"].append(1 if hg_ht == ag_ht else 0)
+                labels["ht_away_win"].append(1 if ag_ht > hg_ht else 0)
+            else:
+                labels["ht_home_win"].append(0)
+                labels["ht_draw"].append(0)
+                labels["ht_away_win"].append(0)
 
         X_array = np.array(X, dtype=np.float32)
 

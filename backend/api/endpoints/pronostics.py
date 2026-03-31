@@ -27,6 +27,34 @@ def reponse_succes(data: dict):
     })
 
 
+def _obtenir_scores_exacts(conn: sqlite3.Connection, match_id: int) -> list:
+    """
+    Retourne les 3 scores les plus probables selon Dixon-Coles.
+    Utilise la score_matrix stockée dans le pronostic le plus récent du match.
+    """
+    import json
+    row = conn.execute(
+        """
+        SELECT score_matrix FROM pronostics
+        WHERE match_id = ? AND score_matrix IS NOT NULL
+        ORDER BY recommended_at DESC LIMIT 1
+        """,
+        (match_id,),
+    ).fetchone()
+    if not row or not row["score_matrix"]:
+        return []
+    try:
+        matrice = json.loads(row["score_matrix"])
+        top = sorted(matrice.items(), key=lambda x: x[1], reverse=True)[:3]
+        return [
+            {"score": score, "probabilite": round(prob * 100, 1)}
+            for score, prob in top
+            if prob > 0.04  # minimum 4% pour être affiché
+        ]
+    except Exception:
+        return []
+
+
 def _charger_pronostics_pending(
     conn: sqlite3.Connection,
     user_id: int,
@@ -142,6 +170,31 @@ async def pronostics_du_jour(
                     context={"user_id": current_user["id"]},
                 )
 
+    MARKET_LABELS_TODAY = {
+        "over15":    "Plus de 1.5 buts",
+        "over25":    "Plus de 2.5 buts",
+        "over35":    "Plus de 3.5 buts",
+        "over45":    "Plus de 4.5 buts",
+        "btts":      "Les deux équipes marquent",
+        "over15_ht": "Plus de 1.5 buts (MT)",
+        "1x2_home":  "Victoire domicile",
+        "1x2_draw":  "Match nul",
+        "1x2_away":  "Victoire extérieur",
+        "1x2_ht_home": "Victoire domicile à la mi-temps",
+        "1x2_ht_draw": "Nul à la mi-temps",
+        "1x2_ht_away": "Victoire extérieur à la mi-temps",
+        "under25":   "Moins de 2.5 buts",
+        "ng":        "Aucune équipe ne marque",
+        "dc_1x":     "Double chance 1X",
+        "dc_x2":     "Double chance X2",
+        "gg_over25": "GG & Plus de 2.5 buts",
+    }
+
+    # Marchés considérés comme "SAFE" (probabilité élevée, cote basse)
+    MARCHES_SAFE = {"over15", "under25", "dc_1x", "dc_x2"}
+    # Marchés considérés comme "PRÉCISION" (combinés ou dérivés spécifiques)
+    MARCHES_PRECISION = {"gg_over25", "1x2_ht_home", "1x2_ht_draw", "1x2_ht_away"}
+
     pronostics_formatted = []
     for p in pronostics_db:
         pronostics_formatted.append({
@@ -154,22 +207,7 @@ async def pronostics_du_jour(
                 "kickoff_timestamp": p["match_timestamp"],
             },
             "market": p["market"],
-            "market_label": {
-                "over15":    "Plus de 1.5 buts",
-                "over25":    "Plus de 2.5 buts",
-                "over35":    "Plus de 3.5 buts",
-                "over45":    "Plus de 4.5 buts",
-                "btts":      "Les deux équipes marquent",
-                "over15_ht": "Plus de 1.5 buts (MT)",
-                "1x2_home":  "Victoire domicile",
-                "1x2_draw":  "Match nul",
-                "1x2_away":  "Victoire extérieur",
-                "under25":   "Moins de 2.5 buts",
-                "ng":        "Aucune équipe ne marque",
-                "dc_1x":     "Double chance 1X",
-                "dc_x2":     "Double chance X2",
-                "gg_over25": "GG & Plus de 2.5 buts",
-            }.get(p["market"], p["market"]),
+            "market_label": MARKET_LABELS_TODAY.get(p["market"], p["market"]),
             "reference_bookmaker": p["reference_bookmaker"],
             "reference_odds": p["reference_odds"],
             "model_probability": p["model_probability"],
@@ -181,6 +219,62 @@ async def pronostics_du_jour(
             "potential_gain": round(p["recommended_stake"] * (p["reference_odds"] - 1), 2),
             "status": p["status"],
         })
+
+    # ── Groupement en fiches SAFE / VALEUR / PRÉCISION par match ──────────
+    fiches_par_match = {}
+    for p in pronostics_formatted:
+        mid = p["match"]["id"]
+        if mid not in fiches_par_match:
+            fiches_par_match[mid] = []
+        fiches_par_match[mid].append(p)
+
+    fiches = []
+    for mid, pronos in fiches_par_match.items():
+        match_info = pronos[0]["match"]
+
+        # Score exact depuis Dixon-Coles (top 3 scores les plus probables)
+        exact_scores = _obtenir_scores_exacts(conn, mid)
+
+        # SAFE : marché "sûr" avec confidence maximale
+        safe_candidates = [p for p in pronos if p["market"] in MARCHES_SAFE]
+        safe = (
+            max(safe_candidates, key=lambda x: x["confidence_score"])
+            if safe_candidates
+            else max(pronos, key=lambda x: x["confidence_score"])
+        )
+
+        # VALEUR : meilleur EV, différent du SAFE
+        valeur_candidates = [p for p in pronos if p["id"] != safe["id"]]
+        valeur = (
+            max(valeur_candidates, key=lambda x: x["expected_value"])
+            if valeur_candidates else None
+        )
+
+        # PRÉCISION : marché combiné/mi-temps, différent des deux autres
+        used_ids = {safe["id"]} | ({valeur["id"]} if valeur else set())
+        precision_candidates = [
+            p for p in pronos
+            if p["id"] not in used_ids and p["market"] in MARCHES_PRECISION
+        ]
+        # Si pas de marché précision dédié, prendre le troisième meilleur EV
+        if not precision_candidates:
+            precision_candidates = [p for p in pronos if p["id"] not in used_ids]
+        precision = (
+            max(precision_candidates, key=lambda x: x["expected_value"])
+            if precision_candidates else None
+        )
+
+        fiches.append({
+            "match": match_info,
+            "safe": safe,
+            "valeur": valeur,
+            "precision": precision,
+            "exact_scores": exact_scores,
+            "all": pronos,
+        })
+
+    # Trier les fiches par kickoff
+    fiches.sort(key=lambda f: f["match"]["kickoff_timestamp"])
 
     prochain_match = None
     if not pronostics_formatted:
@@ -229,6 +323,7 @@ async def pronostics_du_jour(
     return reponse_succes({
         "system_mode": current_user["system_mode"],
         "pronostics": pronostics_formatted,
+        "fiches": fiches,
         "prochain_match": prochain_match,
         "combine_recommendation": None,
         "bankroll_summary": {

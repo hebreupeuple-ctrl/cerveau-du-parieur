@@ -34,6 +34,8 @@ def calculer_features_shots_corners(
     conversion = round(buts / shots_ot, 3) if shots_ot is not None and shots_ot > 0 else None
     shot_eff = round(shots_ot / shots, 3) if shots is not None and shots > 0 else None
 
+    ht_rates = _taux_resultats_ht(matchs_5, team_id)
+
     features = {
         "shots_avg_5m":            shots,
         "shots_on_target_avg_5m":  shots_ot,
@@ -41,9 +43,10 @@ def calculer_features_shots_corners(
         "possession_avg_5m":       _moyenne_stat(matchs_5, team_id, max_time, "possession"),
         "goals_ht_avg_5m":         _moyenne_stat(matchs_5, team_id, max_time, "goals_ht"),
         "over15_ht_rate_5m":       _taux_over15_ht(matchs_5, team_id),
+        "ht_win_rate_5m":          ht_rates["win"],
+        "ht_draw_rate_5m":         ht_rates["draw"],
         "conversion_rate_5m":      conversion,
         "shot_efficiency_5m":      shot_eff,
-        # Fatigue calculée indépendamment (basée sur timestamps, toujours disponible)
         "fatigue_score":           _calculer_fatigue(conn, team_id, max_time),
     }
 
@@ -165,6 +168,41 @@ def _taux_over15_ht(matchs: list, team_id: int) -> float | None:
     if valides == 0:
         return None
     return round(count / valides, 3)
+
+
+def _taux_resultats_ht(matchs: list, team_id: int) -> dict:
+    """
+    Retourne le taux de victoire et de nul à la mi-temps pour l'équipe.
+    Retourne None si aucun match avec données HT.
+    """
+    if not matchs:
+        return {"win": None, "draw": None}
+    wins = 0
+    draws = 0
+    valides = 0
+    for m in matchs:
+        hg_ht = m["home_goals_ht"]
+        ag_ht = m["away_goals_ht"]
+        if hg_ht is None or ag_ht is None:
+            continue
+        valides += 1
+        est_dom = m["home_team_id"] == team_id
+        if est_dom:
+            if hg_ht > ag_ht:
+                wins += 1
+            elif hg_ht == ag_ht:
+                draws += 1
+        else:
+            if ag_ht > hg_ht:
+                wins += 1
+            elif hg_ht == ag_ht:
+                draws += 1
+    if valides == 0:
+        return {"win": None, "draw": None}
+    return {
+        "win": round(wins / valides, 3),
+        "draw": round(draws / valides, 3),
+    }
 
 
 def _calculer_fatigue(

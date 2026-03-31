@@ -181,21 +181,49 @@ def analyser_match(
             "cote_key": "odds_gg_over25",
             "label": "Les deux marquent & plus de 2.5 buts",
         },
+        "1x2_ht_home": {
+            "cote_key": "odds_ht_home",
+            "label": "Victoire domicile à la mi-temps",
+        },
+        "1x2_ht_draw": {
+            "cote_key": "odds_ht_draw",
+            "label": "Nul à la mi-temps",
+        },
+        "1x2_ht_away": {
+            "cote_key": "odds_ht_away",
+            "label": "Victoire extérieur à la mi-temps",
+        },
     }
 
+    # Dériver les cotes 1X2 HT depuis les cotes 1X2 FT si les cotes HT ne sont pas en DB
+    # (approximation : HT odds ≈ 1/P_ht avec marge 12%)
+    for marche_ht, prob_key, cote_key in [
+        ("1x2_ht_home", "prob_ht_home_win", "odds_ht_home"),
+        ("1x2_ht_draw", "prob_ht_draw",     "odds_ht_draw"),
+        ("1x2_ht_away", "prob_ht_away_win", "odds_ht_away"),
+    ]:
+        if cote_key not in cotes_disponibles:
+            p = probabilites_modele.get(prob_key)
+            if p and p > 0.05:
+                cotes_disponibles = dict(cotes_disponibles)
+                cotes_disponibles[cote_key] = round(1.12 / p, 2)
+
     prob_marche_modele = {
-        "over15":    probabilites_modele.get("prob_over15"),
-        "over25":    probabilites_modele.get("prob_over25"),
-        "over45":    probabilites_modele.get("prob_over45"),
-        "btts":      probabilites_modele.get("prob_btts"),
-        "1x2_home":  probabilites_modele.get("prob_home_win"),
-        "1x2_draw":  probabilites_modele.get("prob_draw"),
-        "1x2_away":  probabilites_modele.get("prob_away_win"),
-        "under25":   probabilites_modele.get("prob_under25"),
-        "ng":        probabilites_modele.get("prob_ng"),
-        "dc_1x":     probabilites_modele.get("prob_dc_1x"),
-        "dc_x2":     probabilites_modele.get("prob_dc_x2"),
-        "gg_over25": probabilites_modele.get("prob_gg_over25"),
+        "over15":      probabilites_modele.get("prob_over15"),
+        "over25":      probabilites_modele.get("prob_over25"),
+        "over45":      probabilites_modele.get("prob_over45"),
+        "btts":        probabilites_modele.get("prob_btts"),
+        "1x2_home":    probabilites_modele.get("prob_home_win"),
+        "1x2_draw":    probabilites_modele.get("prob_draw"),
+        "1x2_away":    probabilites_modele.get("prob_away_win"),
+        "under25":     probabilites_modele.get("prob_under25"),
+        "ng":          probabilites_modele.get("prob_ng"),
+        "dc_1x":       probabilites_modele.get("prob_dc_1x"),
+        "dc_x2":       probabilites_modele.get("prob_dc_x2"),
+        "gg_over25":   probabilites_modele.get("prob_gg_over25"),
+        "1x2_ht_home": probabilites_modele.get("prob_ht_home_win"),
+        "1x2_ht_draw": probabilites_modele.get("prob_ht_draw"),
+        "1x2_ht_away": probabilites_modele.get("prob_ht_away_win"),
     }
 
     # Pré-calcul des probabilités implicites corrigées pour les marchés binaires

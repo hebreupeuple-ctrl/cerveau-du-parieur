@@ -643,6 +643,18 @@ def _determiner_resultat_marche(
         return "won" if ag >= hg else "lost"
     elif marche == "gg_over25":
         return "won" if (hg > 0 and ag > 0 and tg > 2) else "lost"
+    elif marche == "1x2_ht_home":
+        if home_goals_ht is None or away_goals_ht is None:
+            return "void"
+        return "won" if home_goals_ht > away_goals_ht else "lost"
+    elif marche == "1x2_ht_draw":
+        if home_goals_ht is None or away_goals_ht is None:
+            return "void"
+        return "won" if home_goals_ht == away_goals_ht else "lost"
+    elif marche == "1x2_ht_away":
+        if home_goals_ht is None or away_goals_ht is None:
+            return "void"
+        return "won" if away_goals_ht > home_goals_ht else "lost"
     # Marché inconnu → void
     return "void"
 
