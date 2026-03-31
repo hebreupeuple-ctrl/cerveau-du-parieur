@@ -229,6 +229,7 @@ async def manual_sync(
                 heures=48,
                 user_ids=[current_user["id"]],
                 max_pronostics=10,
+                replace_pending=True,
             )
         finally:
             await asyncio.to_thread(

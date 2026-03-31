@@ -145,10 +145,12 @@ async def synchroniser_catalogue_et_automatiser_si_necessaire(
                 break
 
         retrain = await entrainer_modele()
+        # replace_pending=True car le catalogue a changé et le modèle vient d'être réentraîné
         refresh = await rafraichir_matchs_cotes_et_pronostics(
             heures=heures,
             user_ids=user_ids,
             max_pronostics=max_pronostics,
+            replace_pending=True,
         )
     finally:
         lock_svc.release("pipeline_catalogue", token)
@@ -176,10 +178,13 @@ async def rafraichir_matchs_cotes_et_pronostics(
     heures: int = 48,
     user_ids: Optional[Sequence[int]] = None,
     max_pronostics: int = 10,
+    replace_pending: bool = False,
 ) -> dict:
     """
     Rafraichit les matchs du jour, les cotes, les features
     puis les pronostics utilisateur.
+    replace_pending=False (défaut) : n'écrase pas les pending existants.
+    replace_pending=True : remplace tout (manual-sync, après retrain).
     """
     conn = creer_connexion()
     try:
@@ -225,6 +230,7 @@ async def rafraichir_matchs_cotes_et_pronostics(
             regenerer_pronostics,
             user_ids,
             max_pronostics,
+            replace_pending,
         )
 
     return {
@@ -286,9 +292,12 @@ def calculer_features_matchs_a_venir(heures: int = 48) -> dict:
 def regenerer_pronostics(
     user_ids: Optional[Sequence[int]] = None,
     max_pronostics: int = 10,
+    replace_pending: bool = False,
 ) -> dict:
     """
     Regenere les pronostics pending pour les utilisateurs actifs.
+    replace_pending=False : ajoute seulement les nouveaux matchs sans écraser les pending.
+    replace_pending=True  : remplace tous les pending (après retrain ou sync manuelle).
     """
     conn = creer_connexion()
     try:
@@ -321,7 +330,7 @@ def regenerer_pronostics(
                 user=user,
                 generateur=generateur,
                 max_pronostics=max_pronostics,
-                replace_pending=True,
+                replace_pending=replace_pending,
                 commit=False,
             )
             total_inserted += resultat["inserted"]
@@ -1072,10 +1081,12 @@ async def pipeline_complet_toutes_ligues(
     retrain = await entrainer_modele()
 
     # Étape 5 : rafraîchissement matchs + cotes + pronostics
+    # replace_pending=True car le modèle vient d'être réentraîné
     refresh = await rafraichir_matchs_cotes_et_pronostics(
         heures=72,
         user_ids=user_ids,
         max_pronostics=max_pronostics,
+        replace_pending=True,
     )
 
     return {
