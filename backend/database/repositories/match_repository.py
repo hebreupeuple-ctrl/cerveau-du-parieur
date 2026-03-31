@@ -51,7 +51,6 @@ class MatchRepository:
                     result_1x2 = ?,
                     over15 = ?,
                     over25 = ?,
-                    over35 = ?,
                     over45 = ?,
                     btts = ?,
                     home_xg = ?,
@@ -89,7 +88,6 @@ class MatchRepository:
                     match.get("result_1x2"),
                     match.get("over15"),
                     match.get("over25"),
-                    match.get("over35"),
                     match.get("over45"),
                     match.get("btts"),
                     match.get("home_xg"),
@@ -123,7 +121,7 @@ class MatchRepository:
                     status, home_goals, away_goals,
                     home_goals_ht, away_goals_ht,
                     total_goals, result_1x2,
-                    over15, over25, over35, over45, btts,
+                    over15, over25, over45, btts,
                     home_xg, away_xg,
                     home_shots, away_shots,
                     home_shots_on_target, away_shots_on_target,
@@ -134,7 +132,7 @@ class MatchRepository:
                     competition_type
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
@@ -157,7 +155,6 @@ class MatchRepository:
                     match.get("result_1x2"),
                     match.get("over15"),
                     match.get("over25"),
-                    match.get("over35"),
                     match.get("over45"),
                     match.get("btts"),
                     match.get("home_xg"),

@@ -73,6 +73,14 @@ class OddsCollector:
             # Mi-temps : odds_1st_half_over15 (nouveau) ou odds_over15_ht (ancien)
             "odds_over15_ht": get_first("odds_1st_half_over15", "odds_over15_ht"),
             "odds_under15_ht": get_first("odds_1st_half_under15", "odds_under15_ht"),
+            # Double Chance (disponibles directement depuis FootyStats)
+            "odds_dc_1x":     safe_float(data.get("odds_doublechance_1x")),
+            "odds_dc_x2":     safe_float(data.get("odds_doublechance_x2")),
+            "odds_dc_12":     safe_float(data.get("odds_doublechance_12")),
+            # HT 1X2 (résultat mi-temps)
+            "odds_ht_home":   safe_float(data.get("odds_1st_half_result_1")),
+            "odds_ht_draw":   safe_float(data.get("odds_1st_half_result_x")),
+            "odds_ht_away":   safe_float(data.get("odds_1st_half_result_2")),
         }
         return {k: v for k, v in cotes.items() if v is not None}
 
@@ -135,8 +143,10 @@ class OddsCollector:
                 odds_btts_yes, odds_btts_no,
                 odds_over15_ht, odds_under15_ht,
                 prob_over25_corrected, prob_btts_corrected,
-                prob_over45_corrected, prob_over15_ht_corrected
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                prob_over45_corrected, prob_over15_ht_corrected,
+                odds_dc_1x, odds_dc_x2, odds_dc_12,
+                odds_ht_home, odds_ht_draw, odds_ht_away
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 match_id, "footystats", 2,
@@ -150,6 +160,8 @@ class OddsCollector:
                 cotes.get("odds_over15_ht"), cotes.get("odds_under15_ht"),
                 prob_over25, prob_btts,
                 prob_over45, prob_over15_ht,
+                cotes.get("odds_dc_1x"), cotes.get("odds_dc_x2"), cotes.get("odds_dc_12"),
+                cotes.get("odds_ht_home"), cotes.get("odds_ht_draw"), cotes.get("odds_ht_away"),
             ),
         )
         self.conn.commit()

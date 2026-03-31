@@ -124,6 +124,10 @@ def appliquer_migrations(
         appliquer as migration_017,
         DESCRIPTION as DESC_017,
     )
+    from backend.database.migrations.migration_018 import (
+        appliquer as migration_018,
+        DESCRIPTION as DESC_018,
+    )
 
     if conn is None:
         conn = obtenir_connexion()
@@ -152,6 +156,7 @@ def appliquer_migrations(
         (15, migration_015, DESC_015),
         (16, migration_016, DESC_016),
         (17, migration_017, DESC_017),
+        (18, migration_018, DESC_018),
     ]
 
     for version, migration_fn, description in migrations:

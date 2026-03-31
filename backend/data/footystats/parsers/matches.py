@@ -49,7 +49,6 @@ def parser_match(data: dict) -> Optional[dict]:
         # Over/Under
         over15 = _safe_bool(data.get("o15"))
         over25 = _safe_bool(data.get("o25"))
-        over35 = _safe_bool(data.get("o35"))
         over45 = _safe_bool(data.get("o45"))
 
         if over25 is None and total_goals is not None:
@@ -77,13 +76,12 @@ def parser_match(data: dict) -> Optional[dict]:
             "status": status,
             "home_goals": home_goals,
             "away_goals": away_goals,
-            "home_goals_ht": _safe_int(data.get("team_a_ht_goals")),
-            "away_goals_ht": _safe_int(data.get("team_b_ht_goals")),
+            "home_goals_ht": _safe_int(data.get("ht_goals_team_a")),
+            "away_goals_ht": _safe_int(data.get("ht_goals_team_b")),
             "total_goals": total_goals,
             "result_1x2": result_1x2,
             "over15": over15,
             "over25": over25,
-            "over35": over35,
             "over45": over45,
             "btts": btts,
             "home_xg": home_xg,
