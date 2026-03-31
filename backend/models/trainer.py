@@ -838,7 +838,6 @@ class ModelTrainer:
             raw.extend(_calculer_features_interaction(row_dict))
             X.append(raw)
 
-            hg = row["home_goals"] if hasattr(row, "__getitem__") else None
             hg_ht = row["home_goals_ht"]
             ag_ht = row["away_goals_ht"]
             r = row["result_1x2"]
