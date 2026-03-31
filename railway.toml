@@ -2,7 +2,6 @@
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "sh -c 'python -m uvicorn backend.api.router:app --host 0.0.0.0 --port $PORT'"
 healthcheckPath = "/api/v1/system/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
