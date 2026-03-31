@@ -9,8 +9,8 @@ from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SEUIL_EV_MINIMUM = 0.05      # Relevé de 3 % à 5 % pour plus de sélectivité
-SEUIL_EDGE_MINIMUM = 0.05
+SEUIL_EV_MINIMUM = 0.03
+SEUIL_EDGE_MINIMUM = 0.03
 
 
 def corriger_marge_bookmaker(cotes: dict) -> dict:

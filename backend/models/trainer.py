@@ -760,6 +760,148 @@ class ModelTrainer:
             context={"version": version, "active": activer},
         )
 
+    def recalibrer_platt(self) -> dict:
+        """
+        Recalibration Platt légère : re-ajuste uniquement les calibrateurs
+        sur des matchs récents (depuis la fin des données d'entraînement),
+        sans réentraîner les modèles de base.
+
+        Utile pour corriger le drift de calibration entre deux réentraînements
+        complets, avec un coût CPU bien inférieur (pas de XGBoost/RF/OOF).
+        """
+        if not self.modeles:
+            self._charger_modeles()
+
+        if not self.modeles:
+            return {"skipped": True, "reason": "aucun_modele_charge"}
+
+        # Récupérer la date de fin des données d'entraînement du modèle actif
+        row = self.conn.execute(
+            """
+            SELECT training_data_end
+            FROM model_versions
+            WHERE is_active = 1
+            ORDER BY trained_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+        if not row or not row["training_data_end"]:
+            return {"skipped": True, "reason": "version_modele_introuvable"}
+
+        training_end_iso = row["training_data_end"]
+        # Convertir en timestamp Unix
+        from datetime import datetime as _dt
+        training_end_ts = int(
+            _dt.fromisoformat(training_end_iso.replace("Z", "+00:00")).timestamp()
+        )
+
+        colonnes_sql = ", ".join([f"mf.{c}" for c in FEATURES_COLONNES])
+        cursor = self.conn.execute(
+            f"""
+            SELECT
+                {colonnes_sql},
+                m.over15, m.over25, m.btts,
+                m.home_goals_ht, m.away_goals_ht,
+                m.result_1x2, m.total_goals, m.match_timestamp
+            FROM match_features mf
+            JOIN matches m ON mf.match_id = m.id
+            WHERE m.status = 'complete'
+            AND m.home_goals IS NOT NULL
+            AND m.over25 IS NOT NULL
+            AND m.match_timestamp > ?
+            ORDER BY m.match_timestamp ASC
+            """,
+            (training_end_ts,),
+        )
+        rows = cursor.fetchall()
+
+        N_MIN_CAL = 200
+        if len(rows) < N_MIN_CAL:
+            return {
+                "skipped": True,
+                "reason": f"donnees_insuffisantes ({len(rows)} < {N_MIN_CAL})",
+            }
+
+        X = []
+        labels = {marche: [] for marche in MARCHES}
+
+        for row in rows:
+            raw = [
+                float(row[col]) if row[col] is not None else np.nan
+                for col in FEATURES_COLONNES
+            ]
+            has_physical = 1.0 if row["home_shots_avg_5m"] is not None else 0.0
+            raw.append(has_physical)
+
+            row_dict = {col: row[col] for col in FEATURES_COLONNES}
+            raw.extend(_calculer_features_interaction(row_dict))
+            X.append(raw)
+
+            hg = row["home_goals"] if hasattr(row, "__getitem__") else None
+            hg_ht = row["home_goals_ht"]
+            ag_ht = row["away_goals_ht"]
+            r = row["result_1x2"]
+            tg = row["total_goals"] or 0
+            o15 = row["over15"]
+            o25 = row["over25"]
+            btts = row["btts"]
+
+            labels["over25"].append(float(o25) if o25 is not None else np.nan)
+            labels["btts"].append(float(btts) if btts is not None else np.nan)
+            labels["over15"].append(float(o15) if o15 is not None else np.nan)
+            labels["over45"].append(float(1 if tg > 4 else 0))
+            labels["home_win"].append(float(1 if r == "home" else 0) if r else np.nan)
+            labels["draw"].append(float(1 if r == "draw" else 0) if r else np.nan)
+            labels["away_win"].append(float(1 if r == "away" else 0) if r else np.nan)
+
+            if hg_ht is not None and ag_ht is not None:
+                labels["ht_home_win"].append(float(1 if hg_ht > ag_ht else 0))
+                labels["ht_draw"].append(float(1 if hg_ht == ag_ht else 0))
+                labels["ht_away_win"].append(float(1 if ag_ht > hg_ht else 0))
+            else:
+                labels["ht_home_win"].append(np.nan)
+                labels["ht_draw"].append(np.nan)
+                labels["ht_away_win"].append(np.nan)
+
+        X_all = np.array(X, dtype=np.float32)
+        medians = getattr(self, "feature_medians", None)
+        for i in range(X_all.shape[1]):
+            col_nan = np.isnan(X_all[:, i])
+            if col_nan.any():
+                fill = float(medians[i]) if medians is not None else 0.0
+                X_all[col_nan, i] = fill
+
+        resultats = {}
+        for marche, ensemble in self.modeles.items():
+            y_all = np.array(labels.get(marche, []), dtype=np.float32)
+            valid_mask = ~np.isnan(y_all)
+            n_valid = int(valid_mask.sum())
+            if n_valid < 50:
+                resultats[marche] = {"skipped": True, "n_valid": n_valid}
+                continue
+
+            X_cal = X_all[valid_mask]
+            y_cal = y_all[valid_mask].astype(np.int32)
+
+            pred_xgb = ensemble["xgboost"].predire_proba(X_cal)
+            pred_rf  = ensemble["random_forest"].predire_proba(X_cal)
+            pred_lr  = ensemble["logistic_regression"].predire_proba(X_cal)
+            pred_brute = ensemble["meta"].predire(pred_xgb, pred_rf, pred_lr)
+
+            if pred_brute is not None and len(pred_brute) >= 20:
+                ensemble["meta"].calibrer(pred_brute, y_cal)
+                resultats[marche] = {"recalibre": True, "n_cal": n_valid}
+            else:
+                resultats[marche] = {"skipped": True, "reason": "prediction_echec"}
+
+        self._sauvegarder_modeles()
+        logger.info_ctx(
+            "Recalibration Platt terminée",
+            context={"resultats": resultats},
+        )
+        return {"recalibration": resultats, "n_matchs_cal": len(rows)}
+
     def _timestamp_vers_iso(self, timestamp: int) -> str:
         return datetime.fromtimestamp(
             timestamp,

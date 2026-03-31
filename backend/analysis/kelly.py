@@ -86,12 +86,12 @@ def calculer_fraction_adaptative(
 
     Progression :
     - Debut (< 30 paris) : 1/8 (0.125)
-    - Etabli (30-100 paris, ROI > 0) : 1/6 (0.167)
-    - Mature (> 100 paris, ROI > 5%) : 1/4 (0.25)
+    - Etabli (30-100 paris, ROI > 0) : 1/5 (0.20)
+    - Mature (> 100 paris, ROI > 10%) : 1/3 (0.333)
 
     Protection :
-    - Bankroll < 80% : fraction reduite de 50%
-    - Bankroll < 60% : fraction minimale 1/8
+    - Bankroll < 80% : fraction reduite progressivement
+    - Bankroll < 50% : fraction minimale 1/16
     """
     # ── Progression de la fraction (fonctions continues, sans paliers durs) ──
     # Maturité : 0.0 à 30 paris, 1.0 à partir de 100 paris
@@ -106,8 +106,8 @@ def calculer_fraction_adaptative(
     # Score combiné : les deux signaux doivent être bons pour monter la fraction
     score = maturite * confiance_roi  # 0.0 → 1.0
 
-    # Fraction interpolée linéairement entre 1/8 (0.125) et 1/4 (0.25)
-    fraction = fraction_base + score * (0.25 - fraction_base)
+    # Fraction interpolée linéairement entre 1/8 (0.125) et 1/3 (0.333)
+    fraction = fraction_base + score * (0.333 - fraction_base)
 
     # ── Protection bankroll (réduction progressive, pas de halving brutal) ──
     ratio_bankroll = bankroll_actuelle / max(bankroll_initiale, 1.0)

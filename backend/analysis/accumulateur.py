@@ -121,8 +121,9 @@ class GenerateurPronostics:
         if self.ml_trainer.modeles:
             pred_ml = self.ml_trainer.predire(features_dict)
 
+        has_physical = bool(features_dict.get("has_physical_data"))
         probabilites_finales = self._fusionner_probabilites(
-            pred_dc, pred_ml
+            pred_dc, pred_ml, has_physical_data=has_physical
         )
 
         if not probabilites_finales:
@@ -187,11 +188,13 @@ class GenerateurPronostics:
         self,
         pred_dc: Optional[dict],
         pred_ml: dict,
+        has_physical_data: bool = False,
     ) -> dict:
         """
         Fusionne les predictions DC et ML.
-        DC = 60%, ML = 40% si ML disponible.
         DC = 100% si ML non disponible.
+        Poids ML augmentés quand les données physiques (tirs/corners/possession)
+        sont disponibles — ces features rendent le ML nettement plus fiable.
         """
         if not pred_dc:
             return {}
@@ -210,22 +213,31 @@ class GenerateurPronostics:
         if not pred_ml:
             return proba_dc
 
-        # Poids DC/ML calibrés par marché :
-        # - 1x2 : DC majoritaire (structurellement optimal) + ML 20% pour la forme récente
-        #   (momentum, h2h_dominance, points_gap, ppm)
-        # - over15/35 : ML plus léger (rares dans l'entraînement), DC majoritaire
-        # - over25/btts : fusion équilibrée, ML apporte la forme récente
-        # - over15_ht : géré séparément ci-dessous
-        POIDS_PAR_MARCHE = {
-            "prob_home_win":  (0.80, 0.20),
-            "prob_draw":      (0.80, 0.20),
-            "prob_away_win":  (0.80, 0.20),
-            "prob_over15":    (0.65, 0.35),
-            "prob_over25":    (0.55, 0.45),
-            "prob_over45":    (0.75, 0.25),
-            "prob_btts":      (0.55, 0.45),
-            "prob_btts_no":   (0.55, 0.45),
-        }
+        # Poids DC/ML calibrés par marché.
+        # Deux tables : sans données physiques (forme seule) et avec (tirs/corners/xG disponibles).
+        # Les données physiques enrichissent le signal ML et justifient une confiance accrue.
+        if has_physical_data:
+            POIDS_PAR_MARCHE = {
+                "prob_home_win":  (0.60, 0.40),
+                "prob_draw":      (0.60, 0.40),
+                "prob_away_win":  (0.60, 0.40),
+                "prob_over15":    (0.50, 0.50),
+                "prob_over25":    (0.40, 0.60),
+                "prob_over45":    (0.55, 0.45),
+                "prob_btts":      (0.40, 0.60),
+                "prob_btts_no":   (0.40, 0.60),
+            }
+        else:
+            POIDS_PAR_MARCHE = {
+                "prob_home_win":  (0.80, 0.20),
+                "prob_draw":      (0.80, 0.20),
+                "prob_away_win":  (0.80, 0.20),
+                "prob_over15":    (0.65, 0.35),
+                "prob_over25":    (0.55, 0.45),
+                "prob_over45":    (0.75, 0.25),
+                "prob_btts":      (0.55, 0.45),
+                "prob_btts_no":   (0.55, 0.45),
+            }
 
         result = {}
         for k, v_dc in proba_dc.items():
@@ -298,12 +310,11 @@ class GenerateurPronostics:
         """
         Genere des cotes de reference depuis les probabilites
         quand aucune cote bookmaker n'est disponible.
-        Applique une marge de 10% simulant un bookmaker moyen.
-        Une marge de 5% était trop faible : avec seuil_edge=0.05,
-        le max edge atteignable était 4.76% (jamais suffisant).
-        À 10%, edge = prob * 0.0909 → passe le seuil dès prob >= 0.55.
+        Applique une marge de 6% simulant un bookmaker compétitif.
+        Avec seuil_edge=0.03, edge = prob * (1-1/1.06) ≈ prob * 0.0566
+        → passe le seuil dès prob >= 0.53.
         """
-        marge = 1.10
+        marge = 1.06
 
         cotes = {}
 

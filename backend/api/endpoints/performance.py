@@ -201,3 +201,111 @@ async def performance_summary(
             "bias_alerts": [],
         },
     })
+
+
+@router.get("/backtest")
+async def backtest_kelly(
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """
+    Simulation de l'évolution de la bankroll sur les paris résolus.
+    Calcule: courbe bankroll, max drawdown, Sharpe, EV moyen réalisé.
+    """
+    user_id = current_user["id"]
+    bankroll_initiale = current_user["initial_bankroll"] or 1000.0
+
+    rows = conn.execute(
+        """
+        SELECT
+            p.placed_at,
+            p.market,
+            p.cote,
+            p.probabilite_modele,
+            p.edge,
+            p.ev,
+            p.actual_stake,
+            p.actual_profit,
+            p.status
+        FROM pronostics p
+        WHERE p.user_id = ?
+        AND p.status IN ('won', 'lost')
+        AND p.actual_stake > 0
+        ORDER BY p.placed_at ASC
+        """,
+        (user_id,),
+    ).fetchall()
+
+    if not rows:
+        return reponse_succes({
+            "bankroll_initiale": bankroll_initiale,
+            "n_paris": 0,
+            "courbe": [],
+            "metriques": {},
+        })
+
+    import math as _math
+
+    bankroll = bankroll_initiale
+    peak = bankroll_initiale
+    max_drawdown = 0.0
+    courbe = []
+    rendements = []
+    total_mise = 0.0
+    total_profit = 0.0
+    ev_sum = 0.0
+    ev_count = 0
+
+    for row in rows:
+        profit = row["actual_profit"] or 0.0
+        mise = row["actual_stake"] or 0.0
+        bankroll += profit
+        total_mise += mise
+        total_profit += profit
+
+        if bankroll > peak:
+            peak = bankroll
+        drawdown = (peak - bankroll) / peak if peak > 0 else 0.0
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+
+        if row["ev"] is not None:
+            ev_sum += row["ev"]
+            ev_count += 1
+
+        rendements.append(profit / mise if mise > 0 else 0.0)
+        courbe.append({
+            "date": row["placed_at"],
+            "bankroll": round(bankroll, 2),
+            "profit_cumul": round(total_profit, 2),
+            "market": row["market"],
+            "mise": round(mise, 2),
+            "profit": round(profit, 2),
+            "won": row["status"] == "won",
+        })
+
+    roi_global = round(total_profit / total_mise, 4) if total_mise > 0 else None
+    avg_ev = round(ev_sum / ev_count, 4) if ev_count > 0 else None
+
+    if len(rendements) > 1:
+        mean_r = sum(rendements) / len(rendements)
+        variance = sum((r - mean_r) ** 2 for r in rendements) / len(rendements)
+        volatilite = round(_math.sqrt(variance), 4) if variance > 0 else 0.0
+        sharpe = round(mean_r / volatilite, 3) if volatilite > 0 else None
+    else:
+        volatilite = None
+        sharpe = None
+
+    return reponse_succes({
+        "bankroll_initiale": bankroll_initiale,
+        "bankroll_finale": round(bankroll, 2),
+        "n_paris": len(rows),
+        "roi_global": roi_global,
+        "max_drawdown": round(max_drawdown, 4),
+        "avg_ev": avg_ev,
+        "volatilite_par_pari": volatilite,
+        "sharpe_ratio": sharpe,
+        "total_mise": round(total_mise, 2),
+        "total_profit": round(total_profit, 2),
+        "courbe": courbe,
+    })

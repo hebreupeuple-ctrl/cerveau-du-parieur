@@ -457,6 +457,23 @@ def _entrainer_modele_sync() -> dict:
         conn.close()
 
 
+async def recalibrer_modele() -> dict:
+    """
+    Recalibration Platt légère sur les matchs récents (post-entraînement).
+    Corrige le drift de calibration sans réentraîner les modèles de base.
+    """
+    return await asyncio.to_thread(_recalibrer_modele_sync)
+
+
+def _recalibrer_modele_sync() -> dict:
+    conn = creer_connexion()
+    try:
+        trainer = ModelTrainer(conn)
+        return trainer.recalibrer_platt()
+    finally:
+        conn.close()
+
+
 def obtenir_resume_features_historiques(
     conn: Optional[sqlite3.Connection] = None,
 ) -> dict:

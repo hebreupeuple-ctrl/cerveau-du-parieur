@@ -17,6 +17,7 @@ from backend.scheduler.tasks.automation import (
     backfill_features_historiques,
     entrainer_modele,
     rafraichir_matchs_cotes_et_pronostics,
+    recalibrer_modele,
     sauvegarder_base_de_donnees,
     synchroniser_catalogue_et_automatiser_si_necessaire,
 )
@@ -80,6 +81,15 @@ class AutomationScheduler:
                     initial_delay_seconds=(
                         settings.MODEL_RETRAIN_INITIAL_DELAY_MINUTES * 60
                     ),
+                    resource_name=SYSTEM_PIPELINE_RESOURCE,
+                )
+            ),
+            asyncio.create_task(
+                self._boucle_job(
+                    "platt_recalibration",
+                    recalibrer_modele,
+                    settings.PLATT_RECAL_INTERVAL_HOURS * 3600,
+                    initial_delay_seconds=7200,  # 2h après démarrage
                     resource_name=SYSTEM_PIPELINE_RESOURCE,
                 )
             ),
