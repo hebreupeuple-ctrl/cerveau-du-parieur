@@ -281,17 +281,17 @@ class ModelTrainer:
             labels["home_win"].append(1 if r1x2 == "1" else 0)
             labels["draw"].append(1 if r1x2 == "X" else 0)
             labels["away_win"].append(1 if r1x2 == "2" else 0)
-            # 1x2 mi-temps : dérivé de home_goals_ht / away_goals_ht
+            # 1x2 mi-temps : np.nan quand données absentes (évite les faux 0)
             hg_ht = row["home_goals_ht"]
             ag_ht = row["away_goals_ht"]
             if hg_ht is not None and ag_ht is not None:
-                labels["ht_home_win"].append(1 if hg_ht > ag_ht else 0)
-                labels["ht_draw"].append(1 if hg_ht == ag_ht else 0)
-                labels["ht_away_win"].append(1 if ag_ht > hg_ht else 0)
+                labels["ht_home_win"].append(float(1 if hg_ht > ag_ht else 0))
+                labels["ht_draw"].append(float(1 if hg_ht == ag_ht else 0))
+                labels["ht_away_win"].append(float(1 if ag_ht > hg_ht else 0))
             else:
-                labels["ht_home_win"].append(0)
-                labels["ht_draw"].append(0)
-                labels["ht_away_win"].append(0)
+                labels["ht_home_win"].append(np.nan)
+                labels["ht_draw"].append(np.nan)
+                labels["ht_away_win"].append(np.nan)
 
         X_array = np.array(X, dtype=np.float32)
 
@@ -314,7 +314,7 @@ class ModelTrainer:
             },
         )
 
-        labels_arrays = {marche: np.array(vals) for marche, vals in labels.items()}
+        labels_arrays = {marche: np.array(vals, dtype=np.float32) for marche, vals in labels.items()}
 
         return {
             "X": X_array,
@@ -418,10 +418,28 @@ class ModelTrainer:
 
         X = donnees["X"]
         resultats = {}
+        N_MIN = 500  # Exemples minimum pour entraîner un marché
 
         for marche in MARCHES:
-            y = donnees["labels"][marche]
-            metriques = self.entrainer_marche(marche, X, y)
+            y_all = donnees["labels"][marche]
+
+            # Filtrer les exemples valides (nan = label manquant, ex. HT sans données)
+            valid_mask = ~np.isnan(y_all)
+            n_valid = int(valid_mask.sum())
+            n_pos = int(y_all[valid_mask].sum()) if n_valid > 0 else 0
+
+            if n_valid < N_MIN:
+                logger.warning_ctx(
+                    f"Marche {marche} ignoree : données insuffisantes",
+                    context={"n_valid": n_valid, "n_min": N_MIN},
+                )
+                resultats[marche] = {"skipped": True, "n_valid": n_valid}
+                continue
+
+            X_marche = X[valid_mask]
+            y_marche = y_all[valid_mask].astype(np.int32)
+
+            metriques = self.entrainer_marche(marche, X_marche, y_marche)
             resultats[marche] = metriques
 
         chemin = self._sauvegarder_modeles()
