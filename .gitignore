@@ -16,3 +16,6 @@ env/
 # Modèles ML — générés au démarrage, ne pas versionner
 data/models/*.pkl
 
+data/cerveau.db
+data/cerveau.db-shm
+data/cerveau.db-wal
