@@ -166,7 +166,7 @@ export default function Admin() {
       }
       await fetchStatus()
     } catch (e) {
-      setError(`Erreur: ${e.message}`)
+      setError(e?.error?.message || e?.message || `Erreur ${endpoint}`)
     } finally {
       setActionLoading(null)
     }
@@ -186,7 +186,7 @@ export default function Admin() {
   const features = data?.features_historiques || {}
 
   const featuresManquantes = features.features_historiques_manquantes || 0
-  const featuresCompletes = features.features_historiques_completes || 0
+  const featuresCompletes = features.features_historiques_calculees || 0
   const featuresTotales = featuresManquantes + featuresCompletes
   const featuresPct = featuresTotales > 0
     ? Math.round(featuresCompletes / featuresTotales * 100)

@@ -24,7 +24,13 @@ MARKET_LABELS = {
 }
 
 
-def _market_result(market: str, home_goals: int, away_goals: int) -> bool | None:
+def _market_result(
+    market: str,
+    home_goals: int,
+    away_goals: int,
+    home_goals_ht: int = None,
+    away_goals_ht: int = None,
+) -> bool | None:
     """Retourne True/False si la prédiction était correcte, None si match non joué."""
     if home_goals is None or away_goals is None:
         return None
@@ -34,9 +40,21 @@ def _market_result(market: str, home_goals: int, away_goals: int) -> bool | None
     if market == "over35":    return total > 3
     if market == "over45":    return total > 4
     if market == "btts":      return home_goals > 0 and away_goals > 0
+    if market == "under25":   return total < 3
+    if market == "ng":        return home_goals == 0 and away_goals == 0
+    if market == "dc_1x":     return home_goals >= away_goals
+    if market == "dc_x2":     return away_goals >= home_goals
+    if market == "gg_over25": return home_goals > 0 and away_goals > 0 and total > 2
     if market == "1x2_home":  return home_goals > away_goals
     if market == "1x2_draw":  return home_goals == away_goals
     if market == "1x2_away":  return away_goals > home_goals
+    # Marchés mi-temps
+    if home_goals_ht is None or away_goals_ht is None:
+        return None
+    if market == "1x2_ht_home": return home_goals_ht > away_goals_ht
+    if market == "1x2_ht_draw": return home_goals_ht == away_goals_ht
+    if market == "1x2_ht_away": return away_goals_ht > home_goals_ht
+    if market == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
     return None
 
 
@@ -145,6 +163,8 @@ async def analyse_matches(
             m.status         AS match_status,
             m.home_goals,
             m.away_goals,
+            m.home_goals_ht,
+            m.away_goals_ht,
             t1.name          AS home_team,
             t2.name          AS away_team,
             l.name           AS league_name
@@ -185,6 +205,8 @@ async def analyse_matches(
             r["market"],
             r["home_goals"],
             r["away_goals"],
+            r["home_goals_ht"],
+            r["away_goals_ht"],
         )
 
         matchs[mid]["markets"].append({

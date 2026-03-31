@@ -242,6 +242,7 @@ export default function Aujourd_hui() {
   const [syncing, setSyncing] = useState(false)
   const [syncStatus, setSyncStatus] = useState(null)
   const [actionError, setActionError] = useState(null)
+  const [generating, setGenerating] = useState(false)
 
   const charger = async () => {
     setLoading(true)
@@ -255,6 +256,12 @@ export default function Aujourd_hui() {
       ])
       setData(pronosticsRes.data)
       setProfile(meRes.data)
+      if (pronosticsRes.data?.generating) {
+        setGenerating(true)
+        setTimeout(() => { setGenerating(false); charger() }, 4000)
+      } else {
+        setGenerating(false)
+      }
     } catch {
       setError('Erreur de connexion au serveur')
     } finally {
@@ -315,6 +322,7 @@ export default function Aujourd_hui() {
 
   return (
     <div style={{ padding: '16px' }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
       {/* En-tête */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingTop: '8px' }}>
         <div>
@@ -368,6 +376,15 @@ export default function Aujourd_hui() {
           <p style={{ fontSize: '12px', color: syncStatus.type === 'success' ? '#7DD3A6' : '#FCA5A5' }}>
             {syncStatus.message}
           </p>
+        </Card>
+      )}
+
+      {generating && (
+        <Card style={{ marginBottom: '16px', padding: '12px 14px', backgroundColor: '#1A2535', borderColor: '#1E3A5F' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <RefreshCw size={14} color="#2563EB" style={{ animation: 'spin 1s linear infinite' }} />
+            <p style={{ fontSize: '12px', color: '#60A5FA' }}>Génération des pronostics en cours…</p>
+          </div>
         </Card>
       )}
 

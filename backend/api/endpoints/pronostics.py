@@ -124,6 +124,8 @@ async def pronostics_du_jour(
         fin_du_jour,
     )
 
+    generation_en_cours = False
+
     if not pronostics_db:
         # Compte uniquement les pending/placed : si tous les pronostics ont été
         # placés/ignorés mais un nouveau match tombe dans la fenêtre, on doit
@@ -188,6 +190,7 @@ async def pronostics_du_jour(
                         )
 
                 asyncio.create_task(_generer_avec_gestion_erreur())
+                generation_en_cours = True
                 logger.info_ctx(
                     "Génération pronostics lancée en arrière-plan",
                     context={"user_id": current_user["id"]},
@@ -345,6 +348,7 @@ async def pronostics_du_jour(
 
     return reponse_succes({
         "system_mode": current_user["system_mode"],
+        "generating": generation_en_cours,
         "pronostics": pronostics_formatted,
         "fiches": fiches,
         "prochain_match": prochain_match,

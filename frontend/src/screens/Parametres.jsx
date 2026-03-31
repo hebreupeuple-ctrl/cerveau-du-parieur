@@ -12,7 +12,9 @@ const FRACTIONS = [
 
 export default function Parametres({ onLogout }) {
   const [kelly, setKelly] = useState('1/8')
-  const [notifications, setNotifications] = useState(true)
+  const [notifications, setNotifications] = useState(
+    () => localStorage.getItem('notifications_enabled') !== 'false'
+  )
   const [profile, setProfile] = useState(null)
   const [systemStatus, setSystemStatus] = useState(null)
   const [modelHealth, setModelHealth] = useState(null)
@@ -277,7 +279,11 @@ export default function Parametres({ onLogout }) {
             </div>
           </div>
           <button
-            onClick={() => setNotifications(!notifications)}
+            onClick={() => {
+              const next = !notifications
+              setNotifications(next)
+              localStorage.setItem('notifications_enabled', String(next))
+            }}
             style={{
               width: '44px',
               height: '24px',
