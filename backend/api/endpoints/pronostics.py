@@ -31,20 +31,43 @@ def _obtenir_scores_exacts(conn: sqlite3.Connection, match_id: int) -> list:
     """
     Retourne les 3 scores les plus probables selon Dixon-Coles.
     Utilise la score_matrix stockée dans le pronostic le plus récent du match.
+    Fallback sur la table predictions pour les anciennes données.
     """
     import json
-    row = conn.execute(
-        """
-        SELECT score_matrix FROM pronostics
-        WHERE match_id = ? AND score_matrix IS NOT NULL
-        ORDER BY recommended_at DESC LIMIT 1
-        """,
-        (match_id,),
-    ).fetchone()
-    if not row or not row["score_matrix"]:
-        return []
+
+    score_matrix_json = None
+
     try:
-        matrice = json.loads(row["score_matrix"])
+        row = conn.execute(
+            """
+            SELECT score_matrix_json FROM pronostics
+            WHERE match_id = ? AND score_matrix_json IS NOT NULL
+            ORDER BY recommended_at DESC LIMIT 1
+            """,
+            (match_id,),
+        ).fetchone()
+        if row:
+            score_matrix_json = row["score_matrix_json"]
+    except sqlite3.OperationalError:
+        score_matrix_json = None
+
+    if not score_matrix_json:
+        row = conn.execute(
+            """
+            SELECT score_matrix_json FROM predictions
+            WHERE match_id = ? AND score_matrix_json IS NOT NULL
+            ORDER BY predicted_at DESC LIMIT 1
+            """,
+            (match_id,),
+        ).fetchone()
+        if row:
+            score_matrix_json = row["score_matrix_json"]
+
+    if not score_matrix_json:
+        return []
+
+    try:
+        matrice = json.loads(score_matrix_json)
         top = sorted(matrice.items(), key=lambda x: x[1], reverse=True)[:3]
         return [
             {"score": score, "probabilite": round(prob * 100, 1)}

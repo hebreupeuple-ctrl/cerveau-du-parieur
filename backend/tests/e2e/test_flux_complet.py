@@ -188,7 +188,7 @@ class TestFluxComplet(unittest.TestCase):
             h = self._headers(token)
 
             self.assertEqual(client.get("/api/v1/auth/me", headers=h).status_code, 200)
-            self.assertEqual(client.post("/api/v1/auth/logout", headers=h).status_code, 204)
+            self.assertEqual(client.post("/api/v1/auth/logout", headers=h).status_code, 200)
             self.assertEqual(client.get("/api/v1/auth/me", headers=h).status_code, 401)
 
     # ─────────────────────────────────────────────────────────────

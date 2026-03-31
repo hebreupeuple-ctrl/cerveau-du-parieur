@@ -220,10 +220,10 @@ async def backtest_kelly(
         SELECT
             p.placed_at,
             p.market,
-            p.cote,
-            p.probabilite_modele,
-            p.edge,
-            p.ev,
+            p.reference_odds,
+            p.model_probability,
+            p.probability_edge,
+            p.expected_value,
             p.actual_stake,
             p.actual_profit,
             p.status
@@ -269,8 +269,8 @@ async def backtest_kelly(
         if drawdown > max_drawdown:
             max_drawdown = drawdown
 
-        if row["ev"] is not None:
-            ev_sum += row["ev"]
+        if row["expected_value"] is not None:
+            ev_sum += row["expected_value"]
             ev_count += 1
 
         rendements.append(profit / mise if mise > 0 else 0.0)

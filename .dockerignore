@@ -1,0 +1,17 @@
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+frontend/node_modules
+frontend/dist
+
+data/cerveau.db
+data/cerveau.db-shm
+data/cerveau.db-wal
+data/backups/*.db
+data/models/*.pkl

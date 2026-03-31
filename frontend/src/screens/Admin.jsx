@@ -4,8 +4,7 @@ import {
   CheckCircle, XCircle, AlertCircle, Play, Loader,
   TrendingUp, BarChart2, Zap, Shield
 } from 'lucide-react'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import api from '../services/api.js'
 
 const STATUS_COLOR = {
   completed: '#22C55E',
@@ -137,15 +136,11 @@ export default function Admin() {
   const [lastRefresh, setLastRefresh] = useState(null)
   const [error, setError] = useState(null)
 
-  const token = localStorage.getItem('token')
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/v1/system/status`)
-      const json = await res.json()
-      if (json.success) {
-        setData(json.data)
+      const res = await api.get('/system/status')
+      if (res.success) {
+        setData(res.data)
         setLastRefresh(new Date())
         setError(null)
       }
@@ -165,13 +160,9 @@ export default function Admin() {
   const runAction = async (endpoint, label) => {
     setActionLoading(label)
     try {
-      const res = await fetch(`${API}/api/v1/system/${endpoint}`, {
-        method: 'POST',
-        headers,
-      })
-      const json = await res.json()
-      if (!json.success) {
-        setError(json.error?.message || `Erreur ${endpoint}`)
+      const res = await api.post(`/system/${endpoint}`)
+      if (!res.success) {
+        setError(res.error?.message || `Erreur ${endpoint}`)
       }
       await fetchStatus()
     } catch (e) {

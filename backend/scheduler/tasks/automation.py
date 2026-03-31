@@ -404,8 +404,9 @@ def generer_et_sauvegarder_pronostics_utilisateur(
                 model_probability, bookmaker_probability, probability_edge,
                 expected_value, reference_bookmaker, reference_odds,
                 confidence_score, kelly_fraction_used, kelly_raw,
-                recommended_stake, bankroll_at_recommendation, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                recommended_stake, bankroll_at_recommendation,
+                score_matrix_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
             """,
             (
                 user["id"],
@@ -422,6 +423,7 @@ def generer_et_sauvegarder_pronostics_utilisateur(
                 pronostic["kelly_brut"],
                 pronostic["mise_recommandee"],
                 user["current_bankroll"],
+                pronostic.get("score_matrix"),
             ),
         )
         inserted += 1
@@ -711,7 +713,6 @@ def _mettre_a_jour_clv_sync() -> dict:
             """
             SELECT p.id, p.market, p.reference_odds,
                    p.actual_odds, p.closing_odds,
-                   m.match_id, o.match_id as odds_match_id,
                    p.match_id as p_match_id
             FROM pronostics p
             JOIN matches m ON p.match_id = m.id

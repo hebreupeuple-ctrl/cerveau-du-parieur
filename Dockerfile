@@ -9,6 +9,6 @@ COPY . .
 
 RUN mkdir -p /data/backups /data/models
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD python -m uvicorn backend.api.router:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD python -m uvicorn backend.api.router:app --host 0.0.0.0 --port ${PORT:-8080}

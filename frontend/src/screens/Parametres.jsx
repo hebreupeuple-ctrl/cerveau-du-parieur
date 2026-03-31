@@ -1,8 +1,14 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { User, Shield, Bell, TrendingUp, LogOut, Sliders } from 'lucide-react'
 import Card from '../components/shared/Card.jsx'
 import Badge from '../components/shared/Badge.jsx'
 import api from '../services/api.js'
+
+const FRACTIONS = [
+  { id: '1/8', label: '1/8 — Très conservateur', value: 0.125 },
+  { id: '1/6', label: '1/6 — Conservateur', value: 0.167 },
+  { id: '1/4', label: '1/4 — Modéré', value: 0.25 },
+]
 
 export default function Parametres({ onLogout }) {
   const [kelly, setKelly] = useState('1/8')
@@ -19,12 +25,6 @@ export default function Parametres({ onLogout }) {
   const [isRetraining, setIsRetraining] = useState(false)
   const [retrainFeedback, setRetrainFeedback] = useState('')
 
-  const fractions = [
-    { id: '1/8', label: '1/8 — Très conservateur', value: 0.125 },
-    { id: '1/6', label: '1/6 — Conservateur', value: 0.167 },
-    { id: '1/4', label: '1/4 — Modéré', value: 0.25 },
-  ]
-
   const sauvegarderKelly = async (fractionId, value) => {
     setKelly(fractionId)
     setKellySaving(true)
@@ -40,7 +40,7 @@ export default function Parametres({ onLogout }) {
     }
   }
 
-  const chargerDonnees = async () => {
+  const chargerDonnees = useCallback(async () => {
     try {
       const [me, status, perf] = await Promise.all([
         api.get('/auth/me'),
@@ -53,18 +53,18 @@ export default function Parametres({ onLogout }) {
       setModelHealth(perf.data?.model_health || null)
 
       const profileKelly = me.data?.kelly_fraction
-      const fraction = fractions.find((item) => item.value === profileKelly)
+      const fraction = FRACTIONS.find((item) => item.value === profileKelly)
       if (fraction) {
         setKelly(fraction.id)
       }
     } catch (e) {
       // L'écran garde ses valeurs de repli si l'API n'est pas disponible.
     }
-  }
+  }, [])
 
   useEffect(() => {
     chargerDonnees()
-  }, [])
+  }, [chargerDonnees])
 
   const lancerSyncLigues = async () => {
     setIsSyncingLeagues(true)
@@ -176,6 +176,9 @@ export default function Parametres({ onLogout }) {
     }
   }
 
+  const systemDb = systemStatus?.db || {}
+  const featureSummary = systemStatus?.features_historiques || {}
+
   const sections = [
     {
       title: 'Compte',
@@ -196,8 +199,8 @@ export default function Parametres({ onLogout }) {
           badge: systemStatus?.system_mode === 'active' ? 'success' : 'muted'
         },
         { label: 'API', value: systemStatus?.api_status || '—' },
-        { label: 'Catalogue ligues', value: systemStatus ? `${systemStatus.ligues_actives ?? '—'} actives / ${systemStatus.total_ligues ?? '—'} total` : '—' },
-        { label: 'Matchs à venir', value: systemStatus?.matchs_a_venir ?? '—' },
+        { label: 'Catalogue ligues', value: systemStatus ? `${systemDb.ligues_actives ?? '—'} actives / ${systemDb.total_ligues ?? '—'} total` : '—' },
+        { label: 'Matchs à venir', value: systemDb.matchs_a_venir ?? '—' },
       ]
     },
     {
@@ -233,7 +236,7 @@ export default function Parametres({ onLogout }) {
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {fractions.map(f => (
+          {FRACTIONS.map(f => (
             <button
               key={f.id}
               onClick={() => sauvegarderKelly(f.id, f.value)}
@@ -412,8 +415,8 @@ export default function Parametres({ onLogout }) {
           </div>
 
           {[
-            { label: 'Ligues actives', value: systemStatus?.ligues_actives ?? '—' },
-            { label: 'Ligues totales en base', value: systemStatus?.total_ligues ?? '—' },
+            { label: 'Ligues actives', value: systemDb.ligues_actives ?? '—' },
+            { label: 'Ligues totales en base', value: systemDb.total_ligues ?? '—' },
             { label: 'Pipeline après changement', value: 'Automatique: backfill, entraînement, pronostics' },
           ].map((item, i, arr) => (
             <div
@@ -473,13 +476,13 @@ export default function Parametres({ onLogout }) {
           </div>
 
           {[
-            { label: 'Matchs complets', value: systemStatus?.matches_complete ?? '—' },
-            { label: 'Features calculées', value: systemStatus?.features_historiques_calculees ?? '—' },
-            { label: 'Backlog restant', value: systemStatus?.features_historiques_manquantes ?? '—' },
+            { label: 'Matchs complets', value: featureSummary.matches_complete ?? '—' },
+            { label: 'Features calculées', value: featureSummary.features_historiques_calculees ?? '—' },
+            { label: 'Backlog restant', value: featureSummary.features_historiques_manquantes ?? '—' },
             {
               label: 'Couverture',
-              value: systemStatus?.historical_backfill_coverage_pct !== undefined
-                ? `${systemStatus.historical_backfill_coverage_pct}%`
+              value: featureSummary.historical_backfill_coverage_pct !== undefined
+                ? `${featureSummary.historical_backfill_coverage_pct}%`
                 : '—'
             },
           ].map((item, i, arr) => (

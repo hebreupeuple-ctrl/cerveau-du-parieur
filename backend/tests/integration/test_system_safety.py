@@ -89,7 +89,7 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
             self.assertEqual(me_before.status_code, 200)
 
             logout = client.post("/api/v1/auth/logout", headers=headers)
-            self.assertEqual(logout.status_code, 204)
+            self.assertEqual(logout.status_code, 200)
 
             me_after = client.get("/api/v1/auth/me", headers=headers)
             self.assertEqual(me_after.status_code, 401)

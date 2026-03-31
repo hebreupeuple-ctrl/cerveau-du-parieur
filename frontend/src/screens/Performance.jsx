@@ -47,7 +47,7 @@ export default function Performance() {
 
   useEffect(() => {
     charger(period)
-  }, [period])
+  }, [charger, period])
 
   const handlePeriod = (p) => {
     setPeriod(p)
