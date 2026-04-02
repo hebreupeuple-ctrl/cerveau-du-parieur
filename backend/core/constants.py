@@ -42,7 +42,6 @@ LEAGUE_TIMEZONES = {
 MARKETS = [
     "over15",
     "over25",
-    "over35",
     "over45",
     "btts",
     "1x2_home",
@@ -53,13 +52,15 @@ MARKETS = [
     "1x2_ht_home",
     "1x2_ht_draw",
     "1x2_ht_away",
+    "more_goals_1st",
+    "more_goals_equal",
+    "more_goals_2nd",
 ]
 
 # Labels lisibles des marchés
 MARKET_LABELS = {
     "over15":     "Plus de 1.5 buts",
     "over25":     "Plus de 2.5 buts",
-    "over35":     "Plus de 3.5 buts",
     "over45":     "Plus de 4.5 buts",
     "btts":       "Les deux équipes marquent",
     "1x2_home":   "Victoire domicile",
@@ -69,7 +70,10 @@ MARKET_LABELS = {
     "over15_ht":  "Mi-temps : plus de 1.5 buts",
     "1x2_ht_home": "Mi-temps : victoire domicile",
     "1x2_ht_draw": "Mi-temps : match nul",
-    "1x2_ht_away": "Mi-temps : victoire extérieur",
+    "1x2_ht_away":    "Mi-temps : victoire extérieur",
+    "more_goals_1st":   "Plus de buts en 1ère mi-temps",
+    "more_goals_equal": "Autant de buts dans chaque mi-temps",
+    "more_goals_2nd":   "Plus de buts en 2ème mi-temps",
 }
 
 # Statuts des pronostics

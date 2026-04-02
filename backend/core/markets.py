@@ -42,6 +42,12 @@ def calculer_resultat_marche(
     if marche == "1x2_ht_away": return away_goals_ht > home_goals_ht
     if marche == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
 
+    ht = home_goals_ht + away_goals_ht
+    st = (home_goals + away_goals) - ht
+    if marche == "more_goals_1st":   return ht > st
+    if marche == "more_goals_equal": return ht == st
+    if marche == "more_goals_2nd":   return st > ht
+
     return None
 
 

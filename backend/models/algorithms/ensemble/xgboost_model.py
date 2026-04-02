@@ -4,6 +4,7 @@ Modele XGBoost pour la prediction de marches de paris.
 
 import numpy as np
 from typing import Optional
+from backend.core.config import settings
 from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -45,7 +46,7 @@ class XGBoostPredictor:
                 eval_metric="logloss",
                 early_stopping_rounds=30,
                 random_state=42,
-                n_jobs=-1,
+                n_jobs=settings.MODEL_TRAIN_N_JOBS,
             )
 
             if X_val is not None and y_val is not None and len(X_val) >= 10:

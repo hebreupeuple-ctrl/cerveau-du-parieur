@@ -19,3 +19,4 @@ data/models/*.pkl
 data/cerveau.db
 data/cerveau.db-shm
 data/cerveau.db-wal
+data/exports/

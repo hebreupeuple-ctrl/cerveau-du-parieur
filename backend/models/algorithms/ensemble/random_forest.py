@@ -5,6 +5,7 @@ Modele Random Forest pour la prediction de marches de paris.
 import warnings
 import numpy as np
 from typing import Optional
+from backend.core.config import settings
 from backend.core.logging import get_logger
 
 warnings.filterwarnings(
@@ -37,7 +38,7 @@ class RandomForestPredictor:
                 min_samples_leaf=5,
                 class_weight="balanced",
                 random_state=42,
-                n_jobs=-1,
+                n_jobs=settings.MODEL_TRAIN_N_JOBS,
             )
             self.modele.fit(X, y)
             self.est_entraine = True

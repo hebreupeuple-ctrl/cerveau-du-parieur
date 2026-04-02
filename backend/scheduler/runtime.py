@@ -38,15 +38,21 @@ class AutomationScheduler:
             return
 
         self._started = True
+        heavy_jobs_enabled = settings.HEAVY_SCHEDULER_JOBS_ENABLED
 
         logger.info("Demarrage du scheduler applicatif")
-
-        if settings.AUTO_SYNC_ON_STARTUP:
-            self._tasks.append(
-                asyncio.create_task(self._bootstrap())
+        if not heavy_jobs_enabled:
+            logger.warning(
+                "Jobs scheduler lourds désactivés pour cette instance "
+                "(sync ligues, retrain, recalibration, backfill)."
             )
 
-        self._tasks.extend([
+        if settings.AUTO_SYNC_ON_STARTUP:
+            bootstrap = self._bootstrap if heavy_jobs_enabled else self._bootstrap_light
+            self._tasks.append(asyncio.create_task(bootstrap()))
+
+        if heavy_jobs_enabled:
+            self._tasks.append(
                 asyncio.create_task(
                     self._boucle_job(
                         "sync_leagues",
@@ -54,48 +60,57 @@ class AutomationScheduler:
                         settings.LEAGUE_SYNC_INTERVAL_HOURS * 3600,
                         resource_name=SYSTEM_PIPELINE_RESOURCE,
                     )
-                ),
-                asyncio.create_task(
-                    self._boucle_job(
-                        "market_refresh",
-                        rafraichir_matchs_cotes_et_pronostics,
-                        settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
-                        resource_name=SYSTEM_PIPELINE_RESOURCE,
-                    )
-                ),
-                # Résolution indépendante : pas d'appel API, juste SQL.
-                # Tourne toutes les 5 min pour corriger les pronostics
-                # dès que FootyStats met les scores à jour.
-                asyncio.create_task(
-                    self._boucle_job(
-                        "resolution",
-                        auto_resoudre_pronostics_termines,
-                        settings.RESOLUTION_INTERVAL_MINUTES * 60,
-                    )
-                ),
+                )
+            )
+        self._tasks.extend([
             asyncio.create_task(
                 self._boucle_job(
-                    "model_retrain",
-                    entrainer_modele,
-                    settings.MODEL_RETRAIN_INTERVAL_HOURS * 3600,
-                    initial_delay_seconds=(
-                        settings.MODEL_RETRAIN_INITIAL_DELAY_MINUTES * 60
-                    ),
+                    "market_refresh",
+                    rafraichir_matchs_cotes_et_pronostics,
+                    settings.MARKET_REFRESH_INTERVAL_MINUTES * 60,
                     resource_name=SYSTEM_PIPELINE_RESOURCE,
                 )
             ),
+            # Résolution indépendante : pas d'appel API, juste SQL.
+            # Tourne toutes les 5 min pour corriger les pronostics
+            # dès que FootyStats met les scores à jour.
             asyncio.create_task(
                 self._boucle_job(
-                    "platt_recalibration",
-                    recalibrer_modele,
-                    settings.PLATT_RECAL_INTERVAL_HOURS * 3600,
-                    initial_delay_seconds=7200,  # 2h après démarrage
-                    resource_name=SYSTEM_PIPELINE_RESOURCE,
+                    "resolution",
+                    auto_resoudre_pronostics_termines,
+                    settings.RESOLUTION_INTERVAL_MINUTES * 60,
                 )
             ),
         ])
 
-        if settings.HISTORICAL_FEATURE_BACKFILL_ENABLED:
+        if heavy_jobs_enabled:
+            self._tasks.extend([
+                asyncio.create_task(
+                    self._boucle_job(
+                        "model_retrain",
+                        entrainer_modele,
+                        settings.MODEL_RETRAIN_INTERVAL_HOURS * 3600,
+                        initial_delay_seconds=(
+                            settings.MODEL_RETRAIN_INITIAL_DELAY_MINUTES * 60
+                        ),
+                        resource_name=SYSTEM_PIPELINE_RESOURCE,
+                    )
+                ),
+                asyncio.create_task(
+                    self._boucle_job(
+                        "platt_recalibration",
+                        recalibrer_modele,
+                        settings.PLATT_RECAL_INTERVAL_HOURS * 3600,
+                        initial_delay_seconds=7200,  # 2h après démarrage
+                        resource_name=SYSTEM_PIPELINE_RESOURCE,
+                    )
+                ),
+            ])
+
+        if (
+            heavy_jobs_enabled
+            and settings.HISTORICAL_FEATURE_BACKFILL_ENABLED
+        ):
             self._tasks.append(
                 asyncio.create_task(
                     self._boucle_job(
@@ -153,6 +168,13 @@ class AutomationScheduler:
                 backfill_features_historiques,
                 resource_name=SYSTEM_PIPELINE_RESOURCE,
             )
+
+    async def _bootstrap_light(self) -> None:
+        await self._executer_job(
+            "market_refresh",
+            rafraichir_matchs_cotes_et_pronostics,
+            resource_name=SYSTEM_PIPELINE_RESOURCE,
+        )
 
     async def _boucle_job(
         self,

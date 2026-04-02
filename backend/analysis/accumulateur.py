@@ -11,13 +11,35 @@ from datetime import datetime, timezone
 from typing import Optional
 from backend.core.logging import get_logger
 from backend.database.connection import obtenir_connexion
-from backend.models.algorithms.dixon_coles import DixonColesModel
+from backend.models.algorithms.dixon_coles import DixonColesModel, poisson_prob
 from backend.models.trainer import ModelTrainer
 from backend.analysis.value_betting import analyser_match
 from backend.analysis.kelly import calculer_kelly_complet
 from backend.features.pipeline import FeaturePipeline
 
 logger = get_logger(__name__)
+
+
+def _prob_more_goals_half(
+    lam_1st: float,
+    lam_2nd: float,
+    max_goals: int = 10,
+) -> tuple[float, float, float]:
+    """
+    Calcule P(1ère MT > 2ème MT), P(égal), P(2ème MT > 1ère MT)
+    en supposant buts 1ère et 2ème indépendants et distribués Poisson.
+    """
+    p_1st = p_eq = p_2nd = 0.0
+    for g1 in range(max_goals + 1):
+        for g2 in range(max_goals + 1):
+            p = poisson_prob(g1, lam_1st) * poisson_prob(g2, lam_2nd)
+            if g1 > g2:
+                p_1st += p
+            elif g1 == g2:
+                p_eq += p
+            else:
+                p_2nd += p
+    return p_1st, p_eq, p_2nd
 
 
 class GenerateurPronostics:
@@ -284,6 +306,14 @@ class GenerateurPronostics:
             result["prob_over15_ht"] = round(pred_ml["ml_prob_over15_ht"], 4)
         else:
             result["prob_over15_ht"] = round(result.get("prob_over25", 0.5) * 0.55, 4)
+
+        # Marché "quelle mi-temps a le plus de buts"
+        # Split empirique : ~45% des buts en 1ère MT, ~55% en 2ème MT
+        lam_total = pred_dc.get("dc_lambda", 1.3) + pred_dc.get("dc_mu", 1.1)
+        p_1st, p_eq, p_2nd = _prob_more_goals_half(lam_total * 0.45, lam_total * 0.55)
+        result["prob_more_goals_1st"]   = round(p_1st, 4)
+        result["prob_more_goals_equal"] = round(p_eq, 4)
+        result["prob_more_goals_2nd"]   = round(p_2nd, 4)
 
         return result
 

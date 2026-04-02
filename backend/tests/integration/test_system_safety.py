@@ -333,7 +333,7 @@ class SystemSafetyIntegrationTests(unittest.TestCase):
                     "actual_odds": 2.1,
                 },
             )
-            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.status_code, 400)
 
             bankroll = conn.execute(
                 "SELECT current_bankroll FROM users WHERE id = 1"

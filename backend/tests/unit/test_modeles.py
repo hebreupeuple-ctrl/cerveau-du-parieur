@@ -364,14 +364,13 @@ class TestFusionDCML:
         pred_dc = {"prob_over25": 0.50, "prob_btts": 0.48}
         pred_ml = {"ml_prob_over25": 0.55}
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
-        # over35 et over15_ht retirés du pipeline
         assert "prob_over35" not in result
-        assert "prob_over15_ht" not in result
 
-    def test_over15_ht_absent_du_resultat(self):
-        """over15_ht retiré (données HT < 5%) — ne doit jamais apparaître."""
+    def test_over15_ht_present_dans_resultat(self):
+        """over15_ht activé (78% disponibilité en DB) — doit apparaître dans la fusion."""
         gen = self._gen()
-        pred_dc = {"prob_home_win": 0.45}
-        pred_ml = {"ml_prob_over15_ht": 0.62}  # même si ML retourne la clé
+        pred_dc = {"prob_home_win": 0.45, "dc_lambda": 1.3, "dc_mu": 1.1}
+        pred_ml = {"ml_prob_over15_ht": 0.62}
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
-        assert "prob_over15_ht" not in result
+        assert "prob_over15_ht" in result
+        assert result["prob_over15_ht"] == pytest.approx(0.62, abs=1e-4)

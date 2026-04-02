@@ -53,10 +53,16 @@ async def lifespan(app: FastAPI):
             trainer = ModelTrainer(conn)
             await asyncio.to_thread(trainer._charger_modeles)
             if not trainer.modeles:
-                logger.info("Modele absent — réentraînement en arrière-plan")
-                from backend.scheduler.tasks.automation import entrainer_modele
-                await entrainer_modele()
-                logger.info("Réentraînement au démarrage terminé")
+                if settings.AUTO_RETRAIN_MISSING_MODEL_ON_STARTUP:
+                    logger.info("Modele absent — réentraînement en arrière-plan")
+                    from backend.scheduler.tasks.automation import entrainer_modele
+                    await entrainer_modele()
+                    logger.info("Réentraînement au démarrage terminé")
+                else:
+                    logger.warning(
+                        "Modele absent au démarrage, mais le réentraînement automatique "
+                        "est désactivé pour cette instance."
+                    )
         except Exception as exc:
             logger.error_ctx(
                 "Echec chargement/réentraînement modele",

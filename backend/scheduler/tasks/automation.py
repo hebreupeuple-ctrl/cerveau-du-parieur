@@ -634,7 +634,6 @@ def _backfill_features_historiques_sync(
 _MARCHE_VERS_COLONNE_ODDS = {
     "over15":    "odds_over15",
     "over25":    "odds_over25",
-    "over35":    "odds_over35",
     "over45":    "odds_over45",
     "btts":      "odds_btts_yes",
     "1x2_home":  "odds_home",

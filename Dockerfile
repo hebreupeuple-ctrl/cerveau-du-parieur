@@ -11,4 +11,4 @@ RUN mkdir -p /data/backups /data/models
 
 EXPOSE 8080
 
-CMD python -m uvicorn backend.api.router:app --host 0.0.0.0 --port ${PORT:-8080}
+CMD ["sh", "scripts/start_web.sh"]

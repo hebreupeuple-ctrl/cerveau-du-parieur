@@ -140,25 +140,27 @@ class TestKellyFractionAdaptative:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestValueBettingHT:
-    def test_over15_ht_saute_si_cote_absente(self):
-        """Sans cote HT, le marché doit être silencieusement ignoré."""
+    def test_over15_ht_derive_si_cote_absente(self):
+        """Sans cote HT bookmaker, une cote dérivée est générée — over15_ht peut apparaître."""
         from backend.analysis.value_betting import analyser_match
         prob = {"prob_over25": 0.70, "prob_over15_ht": 0.80}
         cotes = {"odds_over25": 1.50}
         ops = analyser_match(prob, cotes, seuil_confiance=0.55)
         marches = [o["marche"] for o in ops]
-        assert "over15_ht" not in marches
+        # La cote est dérivée (1.12 / prob) — over15_ht peut générer une opportunité
+        # si l'EV et l'edge dépassent les seuils (avec prob=0.80 c'est le cas)
+        assert "over15_ht" in marches
 
-    def test_over15_ht_jamais_genere(self):
-        """over15_ht retiré du pipeline (données HT < 5% disponibilité)."""
+    def test_over15_ht_genere_avec_cotes_reelles(self):
+        """over15_ht actif (78% disponibilité en DB) — doit apparaître avec cotes réelles."""
         from backend.analysis.value_betting import analyser_match
         prob = {"prob_over15_ht": 0.75, "prob_over25": 0.70}
         cotes = {"odds_over15_ht": 1.60, "odds_under15_ht": 2.50,
                  "odds_over25": 1.90, "odds_under25": 1.95}
         ops = analyser_match(prob, cotes, seuil_confiance=0.55)
         marches = [o["marche"] for o in ops]
-        # over15_ht retiré — ne doit jamais apparaître dans les opportunités
-        assert "over15_ht" not in marches
+        # over15_ht activé depuis commit e15f07c — doit apparaître si EV positive
+        assert "over15_ht" in marches
 
     def test_correction_marge_binaire(self):
         """La probabilité bookmaker corrigée doit être inférieure à la brute."""

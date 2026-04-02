@@ -132,6 +132,13 @@ def analyser_match(
                 cotes_disponibles = dict(cotes_disponibles)
                 cotes_disponibles["odds_gg_over25"] = round(1.0 / p_combined, 2)
 
+    # Cotes fixes du marché "quelle mi-temps a le plus de buts"
+    # Ces cotes ne varient jamais selon le bookmaker — on les injecte toujours.
+    cotes_disponibles = dict(cotes_disponibles)
+    cotes_disponibles.setdefault("odds_more_goals_1st",   3.10)
+    cotes_disponibles.setdefault("odds_more_goals_equal", 3.00)
+    cotes_disponibles.setdefault("odds_more_goals_2nd",   2.10)
+
     mapping_marches = {
         "over15": {
             "cote_key": "odds_over15",
@@ -189,6 +196,18 @@ def analyser_match(
             "cote_key": "odds_over15_ht",
             "label": "Mi-temps : plus de 1.5 buts",
         },
+        "more_goals_1st": {
+            "cote_key": "odds_more_goals_1st",
+            "label": "Plus de buts en 1ère mi-temps",
+        },
+        "more_goals_equal": {
+            "cote_key": "odds_more_goals_equal",
+            "label": "Autant de buts dans chaque mi-temps",
+        },
+        "more_goals_2nd": {
+            "cote_key": "odds_more_goals_2nd",
+            "label": "Plus de buts en 2ème mi-temps",
+        },
     }
 
     # Dériver les cotes 1X2 HT depuis les cotes 1X2 FT si les cotes HT ne sont pas en DB
@@ -216,10 +235,13 @@ def analyser_match(
         "dc_1x":       probabilites_modele.get("prob_dc_1x"),
         "dc_x2":       probabilites_modele.get("prob_dc_x2"),
         "gg_over25":   probabilites_modele.get("prob_gg_over25"),
-        "1x2_ht_home": probabilites_modele.get("prob_ht_home_win"),
-        "1x2_ht_draw": probabilites_modele.get("prob_ht_draw"),
-        "1x2_ht_away": probabilites_modele.get("prob_ht_away_win"),
-        "over15_ht":   probabilites_modele.get("prob_over15_ht"),
+        "1x2_ht_home":    probabilites_modele.get("prob_ht_home_win"),
+        "1x2_ht_draw":    probabilites_modele.get("prob_ht_draw"),
+        "1x2_ht_away":    probabilites_modele.get("prob_ht_away_win"),
+        "over15_ht":      probabilites_modele.get("prob_over15_ht"),
+        "more_goals_1st":   probabilites_modele.get("prob_more_goals_1st"),
+        "more_goals_equal": probabilites_modele.get("prob_more_goals_equal"),
+        "more_goals_2nd":   probabilites_modele.get("prob_more_goals_2nd"),
     }
 
     # Pré-calcul des probabilités implicites corrigées pour les marchés binaires
@@ -239,6 +261,17 @@ def analyser_match(
             if somme > 0:
                 corrections_binaires[cle_yes] = (1.0 / c_yes) / somme
                 corrections_binaires[cle_no] = (1.0 / c_no) / somme
+
+    # Correction marge marché "quelle mi-temps a le plus de buts" (3 voies)
+    c_mg1 = cotes_disponibles.get("odds_more_goals_1st")
+    c_mge = cotes_disponibles.get("odds_more_goals_equal")
+    c_mg2 = cotes_disponibles.get("odds_more_goals_2nd")
+    if c_mg1 and c_mge and c_mg2 and all(c > 1.0 for c in [c_mg1, c_mge, c_mg2]):
+        somme_mg = 1.0 / c_mg1 + 1.0 / c_mge + 1.0 / c_mg2
+        if somme_mg > 0:
+            corrections_binaires["odds_more_goals_1st"]   = (1.0 / c_mg1) / somme_mg
+            corrections_binaires["odds_more_goals_equal"] = (1.0 / c_mge) / somme_mg
+            corrections_binaires["odds_more_goals_2nd"]   = (1.0 / c_mg2) / somme_mg
 
     # Correction 1x2
     c_home = cotes_disponibles.get("odds_home")
