@@ -335,7 +335,7 @@ def regenerer_pronostics(
                 commit=False,
             )
             total_inserted += resultat["inserted"]
-            by_user[user["email"]] = resultat["inserted"]
+            by_user[user["id"]] = resultat["inserted"]
 
         conn.commit()
 

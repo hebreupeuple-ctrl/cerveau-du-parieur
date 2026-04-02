@@ -8,7 +8,7 @@ import sqlite3
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from backend.api.dependencies import get_current_admin_user, get_db
+from backend.api.dependencies import get_current_admin_user, get_current_user, get_db
 from backend.core.logging import get_logger
 from backend.scheduler.locks import DistributedJobLockService
 
@@ -24,7 +24,10 @@ async def health():
 
 
 @router.get("/status")
-async def status(conn: sqlite3.Connection = Depends(get_db)):
+async def status(
+    current_user: dict = Depends(get_current_user),
+    conn: sqlite3.Connection = Depends(get_db),
+):
     from backend.scheduler.tasks.automation import obtenir_resume_features_historiques
 
     # Statistiques DB de base

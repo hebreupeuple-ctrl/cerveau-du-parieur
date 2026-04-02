@@ -6,7 +6,7 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import sqlite3
@@ -140,7 +140,7 @@ async def pronostics_du_jour(
             AND p.status IN ('pending', 'placed')
             AND m.match_timestamp BETWEEN ? AND ?
             """,
-            (current_user["id"], maintenant, fin_du_jour),
+            (current_user["id"], maintenant, maintenant + 48 * 3600),
         ).fetchone()[0]
 
         if existing_window_count == 0:
@@ -605,8 +605,8 @@ _RAISON_LABELS = {
 @router.get("/history")
 async def historique_pronostics(
     status: str = None,
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ):

@@ -3,7 +3,7 @@ Endpoints performance.
 """
 
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 import sqlite3
 
@@ -22,7 +22,7 @@ def reponse_succes(data: dict):
 
 @router.get("/summary")
 async def performance_summary(
-    period: str = "all",
+    period: str = Query("all", pattern="^(week|month|all)$"),
     current_user: dict = Depends(get_current_user),
     conn: sqlite3.Connection = Depends(get_db),
 ):
