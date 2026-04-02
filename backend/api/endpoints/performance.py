@@ -145,6 +145,35 @@ async def performance_summary(
     ).fetchone()
     avg_clv = round(clv_row["avg_clv"], 2) if clv_row["avg_clv"] is not None else None
 
+    # Max drawdown : parcours chronologique des paris résolus
+    drawdown_rows = conn.execute(
+        f"""
+        SELECT actual_stake, actual_profit
+        FROM pronostics
+        WHERE user_id = ?
+        AND status IN ('won', 'lost')
+        AND actual_stake > 0
+        {date_filter}
+        ORDER BY placed_at ASC
+        """,
+        (user_id,),
+    ).fetchall()
+
+    max_drawdown = None
+    if drawdown_rows:
+        bankroll_init = current_user["initial_bankroll"] or 1000.0
+        bk = bankroll_init
+        peak = bankroll_init
+        max_dd = 0.0
+        for r in drawdown_rows:
+            bk += r["actual_profit"] or 0.0
+            if bk > peak:
+                peak = bk
+            dd = (peak - bk) / peak if peak > 0 else 0.0
+            if dd > max_dd:
+                max_dd = dd
+        max_drawdown = round(max_dd, 4)
+
     model_version = conn.execute(
         """
         SELECT version, brier_score_over25, auc_roc_over25,
@@ -167,7 +196,7 @@ async def performance_summary(
             "yield": roi,
             "avg_clv": avg_clv,
             "clv_sample_size": clv_row["n_clv"] if clv_row else 0,
-            "max_drawdown": None,
+            "max_drawdown": max_drawdown,
             "win_rate": (
                 round(stats["bets_won"] / max(stats["bets_won"] + stats["bets_lost"], 1), 4)
                 if stats["total_bets"] > 0 else None

@@ -166,6 +166,12 @@ async def login(req: LoginRequest, conn: sqlite3.Connection = Depends(get_db)):
         )
         conn.commit()
 
+        if locked_until:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "AUTH_ACCOUNT_LOCKED", "message": "Compte verrouillé après trop de tentatives"}
+            )
+
         raise HTTPException(
             status_code=401,
             detail={"code": "AUTH_INVALID_CREDENTIALS", "message": "Email ou mot de passe incorrect"}

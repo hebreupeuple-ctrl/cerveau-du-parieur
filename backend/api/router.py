@@ -89,6 +89,7 @@ def creer_app(env: str = None) -> FastAPI:
         title="Cerveau du Parieur",
         version="1.0.0",
         docs_url="/api/docs" if settings.is_development else None,
+        openapi_url="/openapi.json" if settings.is_development else None,
         redoc_url=None,
         lifespan=lifespan,
     )
