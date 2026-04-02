@@ -636,7 +636,7 @@ async def historique_pronostics(
         status_clause = "AND p.status IN ('pending', 'placed')"
         params_status = []
     elif status == "manques":
-        status_clause = "AND p.status IN ('ignored', 'superseded')"
+        status_clause = "AND p.status IN ('ignored', 'superseded') AND m.status = 'complete'"
         params_status = []
     elif status and status in ("won", "lost", "void", "placed", "pending", "ignored", "superseded"):
         status_clause = "AND p.status = ?"
@@ -651,6 +651,7 @@ async def historique_pronostics(
         f"""
         SELECT COUNT(*)
         FROM pronostics p
+        JOIN matches m ON p.match_id = m.id
         WHERE p.user_id = ?
         {status_clause}
         """,
