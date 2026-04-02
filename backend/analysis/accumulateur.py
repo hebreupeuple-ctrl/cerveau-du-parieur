@@ -267,8 +267,6 @@ class GenerateurPronostics:
             )
 
         # Marchés dérivés — calculés depuis les probabilités fusionnées
-        result["prob_under25"] = round(1.0 - result.get("prob_over25", 0.5), 4)
-        result["prob_ng"] = round(1.0 - result.get("prob_btts", 0.5), 4)
         result["prob_dc_1x"] = round(
             min(result.get("prob_home_win", 0) + result.get("prob_draw", 0), 0.99), 4
         )
@@ -279,6 +277,13 @@ class GenerateurPronostics:
         result["prob_gg_over25"] = round(
             result.get("prob_btts", 0) * result.get("prob_over25", 0), 4
         )
+
+        # Mi-temps over15 : depuis ML si disponible, sinon dérivé de over25 FT
+        # Empiriquement ~55% des matchs over25 FT ont aussi over15 HT
+        if "ml_prob_over15_ht" in pred_ml:
+            result["prob_over15_ht"] = round(pred_ml["ml_prob_over15_ht"], 4)
+        else:
+            result["prob_over15_ht"] = round(result.get("prob_over25", 0.5) * 0.55, 4)
 
         return result
 
@@ -326,11 +331,10 @@ class GenerateurPronostics:
             ("prob_home_win", "odds_home"),
             ("prob_draw",     "odds_draw"),
             ("prob_away_win", "odds_away"),
-            ("prob_under25",  "odds_under25"),
-            ("prob_ng",       "odds_btts_no"),
             ("prob_dc_1x",    "odds_dc_1x"),
             ("prob_dc_x2",    "odds_dc_x2"),
-            ("prob_gg_over25","odds_gg_over25"),
+            ("prob_gg_over25", "odds_gg_over25"),
+            ("prob_over15_ht", "odds_over15_ht"),
         ]:
             p = probabilites.get(cle_prob)
             if p and p > 0.05:

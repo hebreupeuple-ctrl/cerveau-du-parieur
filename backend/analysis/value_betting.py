@@ -161,14 +161,6 @@ def analyser_match(
             "cote_key": "odds_away",
             "label": "Victoire exterieur",
         },
-        "under25": {
-            "cote_key": "odds_under25",
-            "label": "Moins de 2.5 buts",
-        },
-        "ng": {
-            "cote_key": "odds_btts_no",
-            "label": "Aucune des deux équipes ne marque",
-        },
         "dc_1x": {
             "cote_key": "odds_dc_1x",
             "label": "Double chance 1X (domicile ou nul)",
@@ -193,6 +185,10 @@ def analyser_match(
             "cote_key": "odds_ht_away",
             "label": "Victoire extérieur à la mi-temps",
         },
+        "over15_ht": {
+            "cote_key": "odds_over15_ht",
+            "label": "Mi-temps : plus de 1.5 buts",
+        },
     }
 
     # Dériver les cotes 1X2 HT depuis les cotes 1X2 FT si les cotes HT ne sont pas en DB
@@ -201,6 +197,7 @@ def analyser_match(
         ("1x2_ht_home", "prob_ht_home_win", "odds_ht_home"),
         ("1x2_ht_draw", "prob_ht_draw",     "odds_ht_draw"),
         ("1x2_ht_away", "prob_ht_away_win", "odds_ht_away"),
+        ("over15_ht",   "prob_over15_ht",   "odds_over15_ht"),
     ]:
         if cote_key not in cotes_disponibles:
             p = probabilites_modele.get(prob_key)
@@ -216,14 +213,13 @@ def analyser_match(
         "1x2_home":    probabilites_modele.get("prob_home_win"),
         "1x2_draw":    probabilites_modele.get("prob_draw"),
         "1x2_away":    probabilites_modele.get("prob_away_win"),
-        "under25":     probabilites_modele.get("prob_under25"),
-        "ng":          probabilites_modele.get("prob_ng"),
         "dc_1x":       probabilites_modele.get("prob_dc_1x"),
         "dc_x2":       probabilites_modele.get("prob_dc_x2"),
         "gg_over25":   probabilites_modele.get("prob_gg_over25"),
         "1x2_ht_home": probabilites_modele.get("prob_ht_home_win"),
         "1x2_ht_draw": probabilites_modele.get("prob_ht_draw"),
         "1x2_ht_away": probabilites_modele.get("prob_ht_away_win"),
+        "over15_ht":   probabilites_modele.get("prob_over15_ht"),
     }
 
     # Pré-calcul des probabilités implicites corrigées pour les marchés binaires
@@ -233,8 +229,7 @@ def analyser_match(
         ("odds_over15",   "odds_under15"),
         ("odds_over25",   "odds_under25"),
         ("odds_over45",   "odds_under45"),
-        ("odds_btts_yes", "odds_btts_no"),
-        ("odds_home",     "odds_away"),  # correction 1x2 partielle si draw absent
+        ("odds_home",     "odds_away"),
     ]
     for cle_yes, cle_no in paires_binaires:
         c_yes = cotes_disponibles.get(cle_yes)
