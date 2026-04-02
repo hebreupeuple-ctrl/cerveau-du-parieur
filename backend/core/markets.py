@@ -40,7 +40,9 @@ def calculer_resultat_marche(
     if marche == "1x2_ht_home": return home_goals_ht > away_goals_ht
     if marche == "1x2_ht_draw": return home_goals_ht == away_goals_ht
     if marche == "1x2_ht_away": return away_goals_ht > home_goals_ht
+    if marche == "over05_ht":   return (home_goals_ht + away_goals_ht) > 0
     if marche == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
+    if marche == "over25_ht":   return (home_goals_ht + away_goals_ht) > 2
 
     ht = home_goals_ht + away_goals_ht
     st = (home_goals + away_goals) - ht

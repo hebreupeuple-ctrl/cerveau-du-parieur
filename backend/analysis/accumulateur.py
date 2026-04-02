@@ -332,6 +332,16 @@ class GenerateurPronostics:
         result["prob_more_goals_equal"] = round(p_eq, 4)
         result["prob_more_goals_2nd"]   = round(p_2nd, 4)
 
+        # Over HT Poisson : P(buts_ht > seuil) depuis lam_ht
+        result["prob_over05_ht"] = round(
+            1.0 - poisson_prob(0, lam_ht), 4
+        )
+        result["prob_over25_ht"] = round(
+            1.0 - poisson_prob(0, lam_ht)
+              - poisson_prob(1, lam_ht)
+              - poisson_prob(2, lam_ht), 4
+        )
+
         return result
 
     def _obtenir_cotes(self, match_id: int) -> dict:
@@ -382,6 +392,8 @@ class GenerateurPronostics:
             ("prob_dc_x2",    "odds_dc_x2"),
             ("prob_gg_over25", "odds_gg_over25"),
             ("prob_over15_ht", "odds_over15_ht"),
+            ("prob_over05_ht", "odds_over05_ht"),
+            ("prob_over25_ht", "odds_over25_ht"),
         ]:
             p = probabilites.get(cle_prob)
             if p and p > 0.05:

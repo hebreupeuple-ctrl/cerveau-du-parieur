@@ -192,9 +192,17 @@ def analyser_match(
             "cote_key": "odds_ht_away",
             "label": "Victoire extérieur à la mi-temps",
         },
+        "over05_ht": {
+            "cote_key": "odds_over05_ht",
+            "label": "Mi-temps : plus de 0.5 buts",
+        },
         "over15_ht": {
             "cote_key": "odds_over15_ht",
             "label": "Mi-temps : plus de 1.5 buts",
+        },
+        "over25_ht": {
+            "cote_key": "odds_over25_ht",
+            "label": "Mi-temps : plus de 2.5 buts",
         },
         "more_goals_1st": {
             "cote_key": "odds_more_goals_1st",
@@ -217,6 +225,8 @@ def analyser_match(
         ("1x2_ht_draw", "prob_ht_draw",     "odds_ht_draw"),
         ("1x2_ht_away", "prob_ht_away_win", "odds_ht_away"),
         ("over15_ht",   "prob_over15_ht",   "odds_over15_ht"),
+        ("over05_ht",   "prob_over05_ht",   "odds_over05_ht"),
+        ("over25_ht",   "prob_over25_ht",   "odds_over25_ht"),
     ]:
         if cote_key not in cotes_disponibles:
             p = probabilites_modele.get(prob_key)
@@ -238,7 +248,9 @@ def analyser_match(
         "1x2_ht_home":    probabilites_modele.get("prob_ht_home_win"),
         "1x2_ht_draw":    probabilites_modele.get("prob_ht_draw"),
         "1x2_ht_away":    probabilites_modele.get("prob_ht_away_win"),
+        "over05_ht":      probabilites_modele.get("prob_over05_ht"),
         "over15_ht":      probabilites_modele.get("prob_over15_ht"),
+        "over25_ht":      probabilites_modele.get("prob_over25_ht"),
         "more_goals_1st":   probabilites_modele.get("prob_more_goals_1st"),
         "more_goals_equal": probabilites_modele.get("prob_more_goals_equal"),
         "more_goals_2nd":   probabilites_modele.get("prob_more_goals_2nd"),

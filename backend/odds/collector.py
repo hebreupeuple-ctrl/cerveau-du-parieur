@@ -70,9 +70,13 @@ class OddsCollector:
             "odds_under45":   get_first("odds_ft_under45", "odds_under45"),
             "odds_btts_yes":  safe_float(data.get("odds_btts_yes")),
             "odds_btts_no":   safe_float(data.get("odds_btts_no")),
-            # Mi-temps : odds_1st_half_over15 (nouveau) ou odds_over15_ht (ancien)
-            "odds_over15_ht": get_first("odds_1st_half_over15", "odds_over15_ht"),
+            # Mi-temps over/under (FootyStats : odds_1st_half_over*)
+            "odds_over05_ht":  get_first("odds_1st_half_over05",  "odds_over05_ht"),
+            "odds_under05_ht": get_first("odds_1st_half_under05", "odds_under05_ht"),
+            "odds_over15_ht":  get_first("odds_1st_half_over15",  "odds_over15_ht"),
             "odds_under15_ht": get_first("odds_1st_half_under15", "odds_under15_ht"),
+            "odds_over25_ht":  get_first("odds_1st_half_over25",  "odds_over25_ht"),
+            "odds_under25_ht": get_first("odds_1st_half_under25", "odds_under25_ht"),
             # Double Chance (disponibles directement depuis FootyStats)
             "odds_dc_1x":     safe_float(data.get("odds_doublechance_1x")),
             "odds_dc_x2":     safe_float(data.get("odds_doublechance_x2")),
@@ -109,6 +113,15 @@ class OddsCollector:
             if somme45 > 0:
                 prob_over45 = round((1.0 / o45) / somme45, 4)
 
+        # Correction de marge pour over05_ht
+        prob_over05_ht = None
+        o05ht = cotes.get("odds_over05_ht")
+        u05ht = cotes.get("odds_under05_ht")
+        if o05ht and u05ht and o05ht > 1.0 and u05ht > 1.0:
+            somme05ht = 1.0 / o05ht + 1.0 / u05ht
+            if somme05ht > 0:
+                prob_over05_ht = round((1.0 / o05ht) / somme05ht, 4)
+
         # Correction de marge pour over15_ht
         prob_over15_ht = None
         o15ht = cotes.get("odds_over15_ht")
@@ -117,6 +130,15 @@ class OddsCollector:
             somme15ht = 1.0 / o15ht + 1.0 / u15ht
             if somme15ht > 0:
                 prob_over15_ht = round((1.0 / o15ht) / somme15ht, 4)
+
+        # Correction de marge pour over25_ht
+        prob_over25_ht = None
+        o25ht = cotes.get("odds_over25_ht")
+        u25ht = cotes.get("odds_under25_ht")
+        if o25ht and u25ht and o25ht > 1.0 and u25ht > 1.0:
+            somme25ht = 1.0 / o25ht + 1.0 / u25ht
+            if somme25ht > 0:
+                prob_over25_ht = round((1.0 / o25ht) / somme25ht, 4)
 
         prob_home = None
         prob_draw = None
@@ -141,12 +163,17 @@ class OddsCollector:
                 odds_over25, odds_under25,
                 odds_over45, odds_under45,
                 odds_btts_yes, odds_btts_no,
+                odds_over05_ht, odds_under05_ht,
                 odds_over15_ht, odds_under15_ht,
+                odds_over25_ht, odds_under25_ht,
                 prob_over25_corrected, prob_btts_corrected,
-                prob_over45_corrected, prob_over15_ht_corrected,
+                prob_over45_corrected,
+                prob_over05_ht_corrected,
+                prob_over15_ht_corrected,
+                prob_over25_ht_corrected,
                 odds_dc_1x, odds_dc_x2, odds_dc_12,
                 odds_ht_home, odds_ht_draw, odds_ht_away
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 match_id, "footystats", 2,
@@ -157,9 +184,14 @@ class OddsCollector:
                 cotes.get("odds_over25"), cotes.get("odds_under25"),
                 cotes.get("odds_over45"), cotes.get("odds_under45"),
                 cotes.get("odds_btts_yes"), cotes.get("odds_btts_no"),
+                cotes.get("odds_over05_ht"), cotes.get("odds_under05_ht"),
                 cotes.get("odds_over15_ht"), cotes.get("odds_under15_ht"),
+                cotes.get("odds_over25_ht"), cotes.get("odds_under25_ht"),
                 prob_over25, prob_btts,
-                prob_over45, prob_over15_ht,
+                prob_over45,
+                prob_over05_ht,
+                prob_over15_ht,
+                prob_over25_ht,
                 cotes.get("odds_dc_1x"), cotes.get("odds_dc_x2"), cotes.get("odds_dc_12"),
                 cotes.get("odds_ht_home"), cotes.get("odds_ht_draw"), cotes.get("odds_ht_away"),
             ),
