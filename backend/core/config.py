@@ -4,12 +4,36 @@ Charge toutes les variables d'environnement
 et les rend disponibles dans toute l'application.
 """
 
-from pydantic_settings import BaseSettings
-from pydantic import field_validator, model_validator
-from typing import Optional
 import logging
+import os
+from pathlib import Path
+from typing import Optional
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings
 
 _config_logger = logging.getLogger(__name__)
+
+
+def _default_data_dir() -> str:
+    mounted_data_dir = Path("/data")
+    if mounted_data_dir.is_dir():
+        return "/data"
+    return "./data"
+
+
+def _build_default_path(*parts: str) -> str:
+    root = _default_data_dir().rstrip("/")
+    suffix = "/".join(part.strip("/") for part in parts if part)
+    if root.startswith("/"):
+        return f"{root}/{suffix}" if suffix else root
+    return f"{root}/{suffix}" if suffix else root
+
+
+DEFAULT_DATABASE_PATH = _build_default_path("cerveau.db")
+DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DATABASE_PATH}"
+DEFAULT_BACKUP_DIR = _build_default_path("backups")
+DEFAULT_MODELS_DIR = _build_default_path("models")
 
 
 class Settings(BaseSettings):
@@ -33,8 +57,8 @@ class Settings(BaseSettings):
     FOOTYSTATS_BASE_URL: str = "https://api.football-data-api.com"
 
     # Base de données
-    DATABASE_URL: str = "sqlite:///./data/cerveau.db"
-    DATABASE_PATH: str = "./data/cerveau.db"
+    DATABASE_URL: str = DEFAULT_DATABASE_URL
+    DATABASE_PATH: str = DEFAULT_DATABASE_PATH
 
     # Notifications Push VAPID
     NOTIFICATION_VAPID_PUBLIC: Optional[str] = None
@@ -48,7 +72,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Backup
-    BACKUP_DIR: str = "./data/backups"
+    BACKUP_DIR: str = DEFAULT_BACKUP_DIR
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
@@ -81,12 +105,14 @@ class Settings(BaseSettings):
     DC_RHO: float = -0.13
 
     # Modèles
-    MODELS_DIR: str = "./data/models"
+    MODELS_DIR: str = DEFAULT_MODELS_DIR
     MAX_MODEL_VERSIONS: int = 3
 
     # Automatisation
     SCHEDULER_ENABLED: bool = True
     AUTO_SYNC_ON_STARTUP: bool = True
+    HEAVY_SCHEDULER_JOBS_ENABLED: bool = True
+    AUTO_RETRAIN_MISSING_MODEL_ON_STARTUP: bool = True
     LEAGUE_SYNC_INTERVAL_HOURS: int = 24
     MARKET_REFRESH_INTERVAL_MINUTES: int = 60
     RESOLUTION_INTERVAL_MINUTES: int = 5
@@ -98,6 +124,7 @@ class Settings(BaseSettings):
     MODEL_RETRAIN_INITIAL_DELAY_MINUTES: int = 10
     PLATT_RECAL_INTERVAL_HOURS: int = 48
     SYSTEM_JOB_LOCK_LEASE_MINUTES: int = 120
+    MODEL_TRAIN_N_JOBS: int = 1
 
     @field_validator("ENVIRONMENT")
     @classmethod
@@ -126,6 +153,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "SECRET_KEY doit être définie explicitement en production."
                 )
+            if not self.ENCRYPTION_KEY:
+                raise ValueError(
+                    "ENCRYPTION_KEY doit être définie en production "
+                    "(chaîne hexadécimale de 32 octets)."
+                )
         return self
 
     @field_validator("FOOTYSTATS_API_KEY")
@@ -137,6 +169,52 @@ class Settings(BaseSettings):
                 "La collecte de données ne fonctionnera pas."
             )
         return v
+
+    @field_validator("MODEL_TRAIN_N_JOBS")
+    @classmethod
+    def validate_model_train_n_jobs(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("MODEL_TRAIN_N_JOBS doit être >= 1")
+        return v
+
+    @model_validator(mode="after")
+    def apply_safe_production_defaults(self) -> "Settings":
+        is_production_like = (
+            self.ENVIRONMENT == "production"
+            or Path("/data").is_dir()
+        )
+        if not is_production_like:
+            return self
+
+        safe_defaults = {
+            "AUTO_SYNC_ON_STARTUP": False,
+            "HEAVY_SCHEDULER_JOBS_ENABLED": False,
+            "AUTO_RETRAIN_MISSING_MODEL_ON_STARTUP": False,
+            "HISTORICAL_FEATURE_BACKFILL_ENABLED": False,
+        }
+        for env_name, safe_value in safe_defaults.items():
+            if env_name not in os.environ:
+                setattr(self, env_name, safe_value)
+                _config_logger.warning(
+                    "%s désactivé par défaut en production pour limiter les pics mémoire. "
+                    "Définissez explicitement %s=true si vous voulez ce comportement.",
+                    env_name,
+                    env_name,
+                )
+
+        if Path("/data").is_dir():
+            for setting_name in ("DATABASE_PATH", "MODELS_DIR", "BACKUP_DIR"):
+                current_path = os.path.abspath(getattr(self, setting_name))
+                if not current_path.startswith("/data"):
+                    _config_logger.warning(
+                        "Volume /data détecté mais %s pointe vers %s. "
+                        "Définissez %s sur /data/... pour persister correctement en production.",
+                        setting_name,
+                        current_path,
+                        setting_name,
+                    )
+
+        return self
 
     class Config:
         env_file = ".env"

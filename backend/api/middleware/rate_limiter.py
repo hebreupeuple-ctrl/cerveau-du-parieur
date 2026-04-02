@@ -17,6 +17,9 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from backend.core.config import settings
 
+# Nettoyer les IPs inactives toutes les N requêtes
+_CLEANUP_INTERVAL = 10_000
+
 # Chemins soumis à une limite stricte (anti-brute-force)
 AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register"}
 AUTH_LIMIT  = 10   # requêtes
@@ -37,6 +40,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         # {ip: deque de timestamps}
         self._auth_buckets:    dict[str, deque] = defaultdict(deque)
         self._general_buckets: dict[str, deque] = defaultdict(deque)
+        self._request_count: int = 0
 
     def _get_client_ip(self, request: Request) -> str:
         """Extrait l'IP réelle (gère les proxies Railway/Heroku)."""
@@ -61,10 +65,25 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         bucket.append(now)
         return True
 
+    def _purger_ips_inactives(self, now: float) -> None:
+        """Supprime les IPs dont le bucket est vide ou entièrement expiré."""
+        for buckets, window in (
+            (self._auth_buckets, AUTH_WINDOW),
+            (self._general_buckets, GENERAL_WINDOW),
+        ):
+            cutoff = now - window
+            stale = [ip for ip, dq in buckets.items() if not dq or dq[-1] < cutoff]
+            for ip in stale:
+                del buckets[ip]
+
     async def dispatch(self, request: Request, call_next):
         # Désactivé en mode test pour ne pas perturber les suites de tests
         if settings.ENVIRONMENT == "test":
             return await call_next(request)
+
+        self._request_count += 1
+        if self._request_count % _CLEANUP_INTERVAL == 0:
+            self._purger_ips_inactives(time.time())
 
         path = request.url.path
 

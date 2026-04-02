@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional, Sequence
 
 from backend.core.config import settings
+from backend.core.markets import calculer_resultat_marche_str
 from backend.analysis.accumulateur import GenerateurPronostics
 from backend.data.collector import DataCollector
 from backend.data.sync import collecter_nouvelles_ligues, synchroniser_ligues
@@ -627,64 +628,6 @@ def _backfill_features_historiques_sync(
 
 
 
-def _determiner_resultat_marche(
-    marche: str,
-    home_goals: int,
-    away_goals: int,
-    total_goals: int,
-    home_goals_ht,
-    away_goals_ht,
-) -> str:
-    """
-    Détermine le résultat d'un marché donné à partir des buts du match.
-    Retourne 'won', 'lost' ou 'void'.
-    """
-    hg = home_goals or 0
-    ag = away_goals or 0
-    tg = total_goals if total_goals is not None else (hg + ag)
-
-    if marche == "over25":
-        return "won" if tg > 2 else "lost"
-    elif marche == "over15":
-        return "won" if tg > 1 else "lost"
-    elif marche == "over35":
-        return "won" if tg > 3 else "lost"
-    elif marche == "btts":
-        return "won" if (hg > 0 and ag > 0) else "lost"
-    elif marche == "over15_ht":
-        if home_goals_ht is None or away_goals_ht is None:
-            return "void"
-        return "won" if (home_goals_ht + away_goals_ht) > 1 else "lost"
-    elif marche == "1x2_home":
-        return "won" if hg > ag else "lost"
-    elif marche == "1x2_draw":
-        return "won" if hg == ag else "lost"
-    elif marche == "1x2_away":
-        return "won" if ag > hg else "lost"
-    elif marche == "under25":
-        return "won" if tg < 3 else "lost"
-    elif marche == "ng":
-        return "won" if not (hg > 0 and ag > 0) else "lost"
-    elif marche == "dc_1x":
-        return "won" if hg >= ag else "lost"
-    elif marche == "dc_x2":
-        return "won" if ag >= hg else "lost"
-    elif marche == "gg_over25":
-        return "won" if (hg > 0 and ag > 0 and tg > 2) else "lost"
-    elif marche == "1x2_ht_home":
-        if home_goals_ht is None or away_goals_ht is None:
-            return "void"
-        return "won" if home_goals_ht > away_goals_ht else "lost"
-    elif marche == "1x2_ht_draw":
-        if home_goals_ht is None or away_goals_ht is None:
-            return "void"
-        return "won" if home_goals_ht == away_goals_ht else "lost"
-    elif marche == "1x2_ht_away":
-        if home_goals_ht is None or away_goals_ht is None:
-            return "void"
-        return "won" if away_goals_ht > home_goals_ht else "lost"
-    # Marché inconnu → void
-    return "void"
 
 
 # Correspondance marché → colonne odds dans la table `odds`
@@ -823,11 +766,10 @@ def _auto_resoudre_pronostics_sync() -> dict:
 
         for p in placed_rows:
             try:
-                resultat = _determiner_resultat_marche(
+                resultat = calculer_resultat_marche_str(
                     marche=p["market"],
                     home_goals=p["home_goals"],
                     away_goals=p["away_goals"],
-                    total_goals=p["total_goals"],
                     home_goals_ht=p["home_goals_ht"],
                     away_goals_ht=p["away_goals_ht"],
                 )
@@ -960,11 +902,10 @@ def _auto_resoudre_pronostics_sync() -> dict:
 
         for p in recheck_rows:
             try:
-                new_result = _determiner_resultat_marche(
+                new_result = calculer_resultat_marche_str(
                     marche=p["market"],
                     home_goals=p["home_goals"],
                     away_goals=p["away_goals"],
-                    total_goals=p["total_goals"],
                     home_goals_ht=p["home_goals_ht"],
                     away_goals_ht=p["away_goals_ht"],
                 )

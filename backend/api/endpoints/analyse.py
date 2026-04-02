@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 import sqlite3
 
 from backend.api.dependencies import get_db, get_current_user
+from backend.core.markets import calculer_resultat_marche
 
 router = APIRouter()
 
@@ -23,39 +24,6 @@ MARKET_LABELS = {
     "1x2_away":  "Victoire extérieur",
 }
 
-
-def _market_result(
-    market: str,
-    home_goals: int,
-    away_goals: int,
-    home_goals_ht: int = None,
-    away_goals_ht: int = None,
-) -> bool | None:
-    """Retourne True/False si la prédiction était correcte, None si match non joué."""
-    if home_goals is None or away_goals is None:
-        return None
-    total = home_goals + away_goals
-    if market == "over15":    return total > 1
-    if market == "over25":    return total > 2
-    if market == "over35":    return total > 3
-    if market == "over45":    return total > 4
-    if market == "btts":      return home_goals > 0 and away_goals > 0
-    if market == "under25":   return total < 3
-    if market == "ng":        return home_goals == 0 and away_goals == 0
-    if market == "dc_1x":     return home_goals >= away_goals
-    if market == "dc_x2":     return away_goals >= home_goals
-    if market == "gg_over25": return home_goals > 0 and away_goals > 0 and total > 2
-    if market == "1x2_home":  return home_goals > away_goals
-    if market == "1x2_draw":  return home_goals == away_goals
-    if market == "1x2_away":  return away_goals > home_goals
-    # Marchés mi-temps
-    if home_goals_ht is None or away_goals_ht is None:
-        return None
-    if market == "1x2_ht_home": return home_goals_ht > away_goals_ht
-    if market == "1x2_ht_draw": return home_goals_ht == away_goals_ht
-    if market == "1x2_ht_away": return away_goals_ht > home_goals_ht
-    if market == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
-    return None
 
 
 @router.get("/matches")
@@ -201,7 +169,7 @@ async def analyse_matches(
             }
 
         # Résultat réel du marché
-        correct = _market_result(
+        correct = calculer_resultat_marche(
             r["market"],
             r["home_goals"],
             r["away_goals"],

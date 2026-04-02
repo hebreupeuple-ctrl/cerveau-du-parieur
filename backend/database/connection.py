@@ -26,11 +26,12 @@ def creer_connexion(
     conn = sqlite3.connect(
         database_path,
         check_same_thread=False,
-        timeout=30,
+        timeout=60,
     )
 
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=60000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA cache_size=-64000")

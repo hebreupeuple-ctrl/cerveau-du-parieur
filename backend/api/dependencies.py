@@ -5,19 +5,24 @@ Authentication et acces base de donnees.
 
 import sqlite3
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Generator, Optional
 from fastapi import Depends, HTTPException, Header
 from backend.core.config import settings
 from backend.core.security import verifier_token_jwt, hasher_token
-from backend.database.connection import obtenir_connexion
+from backend.database.connection import creer_connexion
 from backend.core.exceptions import (
     TokenInvalidException,
     TokenExpiredException,
 )
 
 
-def get_db() -> sqlite3.Connection:
-    return obtenir_connexion()
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """Connexion dédiée par requête — évite les conflits de verrou avec le scheduler."""
+    conn = creer_connexion()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def get_current_token(

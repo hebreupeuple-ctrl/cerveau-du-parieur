@@ -3,6 +3,7 @@ Securite centrale du systeme.
 JWT, hachage des mots de passe, chiffrement AES-256.
 """
 
+import logging
 import os
 import secrets
 import hashlib
@@ -15,6 +16,8 @@ from backend.core.exceptions import (
     TokenExpiredException,
     TokenInvalidException,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def hasher_mot_de_passe(mot_de_passe: str) -> str:
@@ -80,6 +83,7 @@ def verifier_token_jwt(token: str) -> dict:
 def chiffrer_donnee(donnee: str) -> str:
     """Chiffre une donnee sensible."""
     if not settings.ENCRYPTION_KEY:
+        logger.warning("ENCRYPTION_KEY non configurée — donnée stockée en clair")
         return donnee
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -90,6 +94,7 @@ def chiffrer_donnee(donnee: str) -> str:
         chiffree = aesgcm.encrypt(nonce, donnee_bytes, None)
         return (nonce + chiffree).hex()
     except Exception:
+        logger.error("Echec du chiffrement AES-GCM — donnée stockée en clair", exc_info=True)
         return donnee
 
 
@@ -106,6 +111,7 @@ def dechiffrer_donnee(donnee_chiffree: str) -> str:
         chiffree = donnee_bytes[12:]
         return aesgcm.decrypt(nonce, chiffree, None).decode("utf-8")
     except Exception:
+        logger.error("Echec du déchiffrement AES-GCM — donnée retournée telle quelle", exc_info=True)
         return donnee_chiffree
 
 

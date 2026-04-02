@@ -14,6 +14,7 @@ import sqlite3
 from backend.api.dependencies import get_db, get_current_user
 from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.core.markets import calculer_resultat_marche
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -408,14 +409,14 @@ async def placer_pari(
         if req.actual_stake < settings.MIN_STAKE:
             conn.rollback()
             raise HTTPException(
-                status_code=409,
+                status_code=400,
                 detail=f"Mise minimale: {settings.MIN_STAKE}",
             )
 
         if req.actual_stake > bankroll_avant:
             conn.rollback()
             raise HTTPException(
-                status_code=409,
+                status_code=400,
                 detail="Bankroll insuffisante",
             )
 
@@ -590,35 +591,6 @@ async def resoudre_pronostic(
     })
 
 
-def _calculer_resultat_marche(
-    market: str,
-    home_goals, away_goals,
-    home_goals_ht=None, away_goals_ht=None,
-):
-    """Retourne True si la prédiction était correcte, False sinon, None si match non terminé."""
-    if home_goals is None or away_goals is None:
-        return None
-    total = home_goals + away_goals
-    if market == "over15":     return total > 1
-    if market == "over25":     return total > 2
-    if market == "over35":     return total > 3
-    if market == "over45":     return total > 4
-    if market == "under25":    return total < 3
-    if market == "btts":       return home_goals > 0 and away_goals > 0
-    if market == "ng":         return home_goals == 0 and away_goals == 0
-    if market == "dc_1x":      return home_goals >= away_goals
-    if market == "dc_x2":      return away_goals >= home_goals
-    if market == "gg_over25":  return home_goals > 0 and away_goals > 0 and total > 2
-    if market == "1x2_home":   return home_goals > away_goals
-    if market == "1x2_draw":   return home_goals == away_goals
-    if market == "1x2_away":   return away_goals > home_goals
-    if home_goals_ht is None or away_goals_ht is None:
-        return None
-    if market == "1x2_ht_home": return home_goals_ht > away_goals_ht
-    if market == "1x2_ht_draw": return home_goals_ht == away_goals_ht
-    if market == "1x2_ht_away": return away_goals_ht > home_goals_ht
-    if market == "over15_ht":   return (home_goals_ht + away_goals_ht) > 1
-    return None
 
 
 _RAISON_LABELS = {
@@ -740,7 +712,7 @@ async def historique_pronostics(
     for p in rows:
         raison_brute = p["ignore_reason"] or p["superseded_reason"] or None
         raison_label = _RAISON_LABELS.get(raison_brute, raison_brute)
-        prediction_correct = _calculer_resultat_marche(
+        prediction_correct = calculer_resultat_marche(
             p["market"],
             p["home_goals"],
             p["away_goals"],
