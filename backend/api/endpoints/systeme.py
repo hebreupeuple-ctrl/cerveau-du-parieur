@@ -4,10 +4,11 @@ Endpoints systeme.
 
 import asyncio
 from datetime import datetime, timezone
+import sqlite3
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from backend.api.dependencies import get_current_admin_user
+from backend.api.dependencies import get_current_admin_user, get_db
 from backend.core.logging import get_logger
 from backend.scheduler.locks import DistributedJobLockService
 
@@ -23,11 +24,8 @@ async def health():
 
 
 @router.get("/status")
-async def status():
-    from backend.database.connection import obtenir_connexion
+async def status(conn: sqlite3.Connection = Depends(get_db)):
     from backend.scheduler.tasks.automation import obtenir_resume_features_historiques
-
-    conn = obtenir_connexion()
 
     # Statistiques DB de base
     total_matchs    = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
@@ -434,6 +432,7 @@ async def pipeline_complet(
 @router.post("/manual-retrain")
 async def manual_retrain(
     current_user: dict = Depends(get_current_admin_user),
+    conn: sqlite3.Connection = Depends(get_db),
 ):
     """
     Déclenche un réentraînement manuel du modèle actif.
@@ -458,7 +457,6 @@ async def manual_retrain(
             },
         )
 
-    from backend.database.connection import obtenir_connexion
     from backend.scheduler.tasks.automation import entrainer_modele
 
     logger.info_ctx(
@@ -476,7 +474,6 @@ async def manual_retrain(
                 lock_token,
             )
 
-    conn = obtenir_connexion()
     version = conn.execute(
         """
         SELECT version, trained_at, brier_score_over25, auc_roc_over25
