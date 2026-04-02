@@ -145,7 +145,8 @@ class GenerateurPronostics:
 
         has_physical = bool(features_dict.get("has_physical_data"))
         probabilites_finales = self._fusionner_probabilites(
-            pred_dc, pred_ml, has_physical_data=has_physical
+            pred_dc, pred_ml, has_physical_data=has_physical,
+            features=features_dict,
         )
 
         if not probabilites_finales:
@@ -211,6 +212,7 @@ class GenerateurPronostics:
         pred_dc: Optional[dict],
         pred_ml: dict,
         has_physical_data: bool = False,
+        features: Optional[dict] = None,
     ) -> dict:
         """
         Fusionne les predictions DC et ML.
@@ -308,9 +310,24 @@ class GenerateurPronostics:
             result["prob_over15_ht"] = round(result.get("prob_over25", 0.5) * 0.55, 4)
 
         # Marché "quelle mi-temps a le plus de buts"
-        # Split empirique : ~45% des buts en 1ère MT, ~55% en 2ème MT
+        # Split dynamique basé sur les moyennes HT des équipes (5 derniers matchs).
+        # Fallback sur le split empirique 45/55 si données absentes.
         lam_total = pred_dc.get("dc_lambda", 1.3) + pred_dc.get("dc_mu", 1.1)
-        p_1st, p_eq, p_2nd = _prob_more_goals_half(lam_total * 0.45, lam_total * 0.55)
+        if features:
+            ht_home = features.get("home_goals_ht_avg_5m")
+            ht_away = features.get("away_goals_ht_avg_5m")
+            ft_home = pred_dc.get("dc_lambda", 1.3)
+            ft_away = pred_dc.get("dc_mu", 1.1)
+            if ht_home is not None and ht_away is not None and lam_total > 0:
+                lam_ht  = float(ht_home) + float(ht_away)
+                lam_2nd = max(0.01, lam_total - lam_ht)
+            else:
+                lam_ht  = lam_total * 0.45
+                lam_2nd = lam_total * 0.55
+        else:
+            lam_ht  = lam_total * 0.45
+            lam_2nd = lam_total * 0.55
+        p_1st, p_eq, p_2nd = _prob_more_goals_half(lam_ht, lam_2nd)
         result["prob_more_goals_1st"]   = round(p_1st, 4)
         result["prob_more_goals_equal"] = round(p_eq, 4)
         result["prob_more_goals_2nd"]   = round(p_2nd, 4)
