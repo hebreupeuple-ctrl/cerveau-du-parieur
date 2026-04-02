@@ -384,12 +384,38 @@ def generer_et_sauvegarder_pronostics_utilisateur(
             "suspended": True,
         }
 
+    # Calcul du ROI historique et du nombre de paris résolus pour Kelly adaptatif
+    stats_row = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status IN ('won','lost') THEN 1 ELSE 0 END) as n_paris,
+            CASE
+                WHEN SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END) > 0
+                THEN SUM(CASE
+                    WHEN status = 'won' THEN actual_stake * (actual_odds - 1)
+                    WHEN status = 'lost' THEN -actual_stake
+                    ELSE 0
+                END) / SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END)
+                ELSE NULL
+            END as roi
+        FROM pronostics
+        WHERE user_id = ?
+        AND status IN ('won', 'lost', 'void')
+        """,
+        (user["id"],),
+    ).fetchone()
+
+    n_paris      = int(stats_row["n_paris"] or 0)
+    roi_historique = float(stats_row["roi"]) if stats_row["roi"] is not None else None
+
     generateur = generateur or GenerateurPronostics(conn)
     pronostics = generateur.generer_pronostics_du_jour(
         user_id=user["id"],
         bankroll=user["current_bankroll"],
         bankroll_initiale=user["initial_bankroll"],
         fraction_override=user["kelly_fraction"],
+        roi_historique=roi_historique,
+        n_paris=n_paris,
         max_pronostics=max_pronostics,
     )
 

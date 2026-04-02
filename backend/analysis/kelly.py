@@ -155,15 +155,15 @@ def calculer_kelly_complet(
             "a_valeur": False,
         }
 
-    if fraction_override is not None:
-        fraction = fraction_override
-    else:
-        fraction = calculer_fraction_adaptative(
-            roi_historique=roi_historique,
-            n_paris=n_paris,
-            bankroll_actuelle=bankroll,
-            bankroll_initiale=bankroll_initiale,
-        )
+    # fraction_override est la base de départ (préférence utilisateur),
+    # mais l'adaptation ROI et la protection bankroll s'appliquent toujours.
+    fraction = calculer_fraction_adaptative(
+        roi_historique=roi_historique,
+        n_paris=n_paris,
+        bankroll_actuelle=bankroll,
+        bankroll_initiale=bankroll_initiale,
+        fraction_base=fraction_override if fraction_override is not None else FRACTION_DEFAUT,
+    )
 
     kelly_avec_fraction = appliquer_fraction(kelly_brut, fraction)
 
