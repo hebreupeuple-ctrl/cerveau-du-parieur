@@ -636,7 +636,7 @@ async def historique_pronostics(
         status_clause = "AND p.status IN ('pending', 'placed')"
         params_status = []
     elif status == "manques":
-        status_clause = "AND p.status IN ('ignored', 'superseded') AND m.status = 'complete'"
+        status_clause = "AND p.status = 'ignored' AND m.status = 'complete'"
         params_status = []
     elif status and status in ("won", "lost", "void", "placed", "pending", "ignored", "superseded"):
         status_clause = "AND p.status = ?"
@@ -688,10 +688,11 @@ async def historique_pronostics(
             SUM(CASE WHEN p.status = 'lost' THEN 1 ELSE 0 END) as lost,
             SUM(CASE WHEN p.status IN ('placed', 'pending') THEN 1 ELSE 0 END) as en_cours,
             SUM(CASE WHEN p.status = 'void' THEN 1 ELSE 0 END) as void,
-            SUM(CASE WHEN p.status IN ('ignored', 'superseded') THEN 1 ELSE 0 END) as manques,
+            SUM(CASE WHEN p.status = 'ignored' AND m.status = 'complete' THEN 1 ELSE 0 END) as manques,
             SUM(CASE WHEN p.status IN ('won', 'lost') THEN p.actual_profit ELSE 0 END) as profit_total,
             SUM(CASE WHEN p.status IN ('won', 'lost', 'void') THEN p.actual_stake ELSE 0 END) as mises_totales
         FROM pronostics p
+        JOIN matches m ON p.match_id = m.id
         WHERE p.user_id = ?
         """,
         (current_user["id"],),
