@@ -391,30 +391,23 @@ class GenerateurPronostics:
         # - Max 48h : aligné sur la collecte des cotes (heures=48)
         debut_fenetre = maintenant + (2 * 3600)
         fin_fenetre   = maintenant + (48 * 3600)
-        leagues_autorisees = self._obtenir_leagues_autorisees(user_id)
-        marches_autorises = self._obtenir_marches_autorises(user_id)
-
-        if leagues_autorisees:
-            placeholders = ", ".join("?" for _ in leagues_autorisees)
-            matchs = self.conn.execute(
-                f"""
-                SELECT m.id, m.match_timestamp,
-                       t1.name as home_name,
-                       t2.name as away_name,
-                       l.name as league_name
-                FROM matches m
-                JOIN teams t1 ON m.home_team_id = t1.id
-                JOIN teams t2 ON m.away_team_id = t2.id
-                JOIN leagues l ON m.league_id = l.id
-                WHERE m.status = 'upcoming'
-                AND m.match_timestamp BETWEEN ? AND ?
-                AND m.league_id IN ({placeholders})
-                ORDER BY m.match_timestamp ASC
-                """,
-                (debut_fenetre, fin_fenetre, *sorted(leagues_autorisees)),
-            ).fetchall()
-        else:
-            matchs = []
+        matchs = self.conn.execute(
+            """
+            SELECT m.id, m.match_timestamp,
+                   t1.name as home_name,
+                   t2.name as away_name,
+                   l.name as league_name
+            FROM matches m
+            JOIN teams t1 ON m.home_team_id = t1.id
+            JOIN teams t2 ON m.away_team_id = t2.id
+            JOIN leagues l ON m.league_id = l.id
+            WHERE m.status = 'upcoming'
+            AND m.match_timestamp BETWEEN ? AND ?
+            AND l.is_active = 1
+            ORDER BY m.match_timestamp ASC
+            """,
+            (debut_fenetre, fin_fenetre),
+        ).fetchall()
 
         logger.info_ctx(
             "Matchs a analyser",
@@ -432,7 +425,7 @@ class GenerateurPronostics:
                 roi_historique=roi_historique,
                 n_paris=n_paris,
                 fraction_override=fraction_override,
-                marches_autorises=marches_autorises,
+                marches_autorises=None,
             )
             tous_pronostics.extend(pronostics)
 
