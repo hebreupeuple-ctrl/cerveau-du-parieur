@@ -388,14 +388,14 @@ def generer_et_sauvegarder_pronostics_utilisateur(
     stats_row = conn.execute(
         """
         SELECT
-            SUM(CASE WHEN status IN ('won','lost') THEN 1 ELSE 0 END) as n_paris,
+            SUM(CASE WHEN status IN ('won','lost') AND actual_stake IS NOT NULL THEN 1 ELSE 0 END) as n_paris,
             CASE
-                WHEN SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END) > 0
+                WHEN SUM(CASE WHEN status IN ('won','lost') AND actual_stake IS NOT NULL THEN actual_stake ELSE 0 END) > 0
                 THEN SUM(CASE
-                    WHEN status = 'won' THEN actual_stake * (actual_odds - 1)
-                    WHEN status = 'lost' THEN -actual_stake
+                    WHEN status = 'won' AND actual_stake IS NOT NULL THEN actual_stake * (actual_odds - 1)
+                    WHEN status = 'lost' AND actual_stake IS NOT NULL THEN -actual_stake
                     ELSE 0
-                END) / SUM(CASE WHEN status IN ('won','lost') THEN actual_stake ELSE 0 END)
+                END) / SUM(CASE WHEN status IN ('won','lost') AND actual_stake IS NOT NULL THEN actual_stake ELSE 0 END)
                 ELSE NULL
             END as roi
         FROM pronostics

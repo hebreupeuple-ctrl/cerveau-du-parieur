@@ -79,6 +79,7 @@ FEATURES_COLONNES = [
 # Vaut 1 quand les données physiques (tirs/corners/possession) sont disponibles, 0 sinon.
 # Permet au modèle de pondérer correctement les features physiques imputées.
 FEATURE_VIRTUELLE_PHYSIQUE = "has_physical_data"
+FEATURE_VIRTUELLE_XG       = "has_xg_data"
 
 # Features d'interaction (dérivées de combinaisons de features existantes).
 # Ces features capturent directement la dynamique match-niveau (attaque A × défense B)
@@ -114,7 +115,7 @@ FEATURES_INTERACTION = [
 ]
 
 # Noms complets des features utilisées par le modèle (DB + virtuelles + interactions)
-FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE] + FEATURES_INTERACTION
+FEATURES_NOMS = FEATURES_COLONNES + [FEATURE_VIRTUELLE_PHYSIQUE, FEATURE_VIRTUELLE_XG] + FEATURES_INTERACTION
 
 MARCHES = {
     "over15":      "over15",
@@ -267,6 +268,10 @@ class ModelTrainer:
             # Calculée AVANT imputation pour capturer la vraie disponibilité.
             has_physical = 1.0 if row["home_shots_avg_5m"] is not None else 0.0
             features.append(has_physical)
+            # Feature virtuelle : 1 si données xG disponibles, 0 sinon.
+            # Sans ce flag, le modèle ne sait pas si match_xg_total est réel ou imputé.
+            has_xg = 1.0 if row["home_xg_generated_5m"] is not None else 0.0
+            features.append(has_xg)
 
             # Features d'interaction (calculées depuis les valeurs brutes pré-imputation)
             row_dict = {col: row[col] for col in FEATURES_COLONNES}
@@ -469,6 +474,8 @@ class ModelTrainer:
         # Feature virtuelle : calculée AVANT imputation (même logique qu'à l'entraînement)
         has_physical = 1.0 if features.get("home_shots_avg_5m") is not None else 0.0
         raw.append(has_physical)
+        has_xg = 1.0 if features.get("home_xg_generated_5m") is not None else 0.0
+        raw.append(has_xg)
 
         # Features d'interaction : calculées depuis les valeurs brutes pré-imputation
         raw.extend(_calculer_features_interaction(features))
@@ -833,6 +840,8 @@ class ModelTrainer:
             ]
             has_physical = 1.0 if row["home_shots_avg_5m"] is not None else 0.0
             raw.append(has_physical)
+            has_xg = 1.0 if row["home_xg_generated_5m"] is not None else 0.0
+            raw.append(has_xg)
 
             row_dict = {col: row[col] for col in FEATURES_COLONNES}
             raw.extend(_calculer_features_interaction(row_dict))

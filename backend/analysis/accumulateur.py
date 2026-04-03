@@ -141,7 +141,15 @@ class GenerateurPronostics:
 
         pred_ml = {}
         if self.ml_trainer.modeles:
-            pred_ml = self.ml_trainer.predire(features_dict)
+            try:
+                pred_ml = self.ml_trainer.predire(features_dict)
+            except Exception as e:
+                # Modèle sauvegardé avec un nombre de features différent (après ajout d'une
+                # feature virtuelle) — fallback sur DC seul jusqu'au prochain réentraînement.
+                logger.warning_ctx(
+                    "Prédiction ML échouée, fallback DC",
+                    context={"erreur": str(e)},
+                )
 
         has_physical = bool(features_dict.get("has_physical_data"))
         probabilites_finales = self._fusionner_probabilites(

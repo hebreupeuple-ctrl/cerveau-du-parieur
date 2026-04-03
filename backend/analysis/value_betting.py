@@ -6,11 +6,13 @@ pour identifier les paris avec valeur attendue positive.
 
 from typing import Optional
 from backend.core.logging import get_logger
+from backend.core.config import settings
 
 logger = get_logger(__name__)
 
-SEUIL_EV_MINIMUM = 0.03
-SEUIL_EDGE_MINIMUM = 0.03
+# Lus depuis settings pour rester synchronisés avec config.py
+SEUIL_EV_MINIMUM   = settings.MIN_EV_THRESHOLD   # 0.05 par défaut
+SEUIL_EDGE_MINIMUM = settings.MIN_PROB_EDGE       # 0.05 par défaut
 
 
 def corriger_marge_bookmaker(cotes: dict) -> dict:
