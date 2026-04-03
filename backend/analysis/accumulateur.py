@@ -237,6 +237,7 @@ class GenerateurPronostics:
             "prob_away_win": pred_dc.get("prob_away_win", 0.33),
             "prob_over15": pred_dc.get("prob_over15", 0.70),
             "prob_over25": pred_dc.get("prob_over25", 0.50),
+            "prob_over35": pred_dc.get("prob_over35", 0.25),
             "prob_over45": pred_dc.get("prob_over45", 0.15),
             "prob_btts": pred_dc.get("prob_btts", 0.50),
             "prob_btts_no": pred_dc.get("prob_btts_no", 0.50),
@@ -255,6 +256,7 @@ class GenerateurPronostics:
                 "prob_away_win":  (0.60, 0.40),
                 "prob_over15":    (0.50, 0.50),
                 "prob_over25":    (0.40, 0.60),
+                "prob_over35":    (0.50, 0.50),
                 "prob_over45":    (0.55, 0.45),
                 "prob_btts":      (0.40, 0.60),
                 "prob_btts_no":   (0.40, 0.60),
@@ -266,6 +268,7 @@ class GenerateurPronostics:
                 "prob_away_win":  (0.80, 0.20),
                 "prob_over15":    (0.65, 0.35),
                 "prob_over25":    (0.55, 0.45),
+                "prob_over35":    (0.70, 0.30),
                 "prob_over45":    (0.75, 0.25),
                 "prob_btts":      (0.55, 0.45),
                 "prob_btts_no":   (0.55, 0.45),
@@ -305,6 +308,12 @@ class GenerateurPronostics:
         result["prob_dc_x2"] = round(
             min(result.get("prob_draw", 0) + result.get("prob_away_win", 0), 0.99), 4
         )
+        result["prob_dc_12"] = round(
+            min(result.get("prob_home_win", 0) + result.get("prob_away_win", 0), 0.99), 4
+        )
+        # Under = complément exact des over (somme = 1)
+        result["prob_under15"] = round(1.0 - result.get("prob_over15", 0.70), 4)
+        result["prob_under25"] = round(1.0 - result.get("prob_over25", 0.50), 4)
         # GG & Over 2.5 : approximation par indépendance (légèrement optimiste)
         result["prob_gg_over25"] = round(
             result.get("prob_btts", 0) * result.get("prob_over25", 0), 4

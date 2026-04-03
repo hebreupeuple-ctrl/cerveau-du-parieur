@@ -41,9 +41,14 @@ LEAGUE_TIMEZONES = {
 # Marchés disponibles
 MARKETS = [
     "over15",
+    "under15",
     "over25",
+    "under25",
+    "over35",
     "over45",
     "btts",
+    "btts_no",
+    "dc_12",
     "1x2_home",
     "1x2_draw",
     "1x2_away",
@@ -62,9 +67,14 @@ MARKETS = [
 # Labels lisibles des marchés
 MARKET_LABELS = {
     "over15":     "Plus de 1.5 buts",
+    "under15":    "Moins de 1.5 buts",
     "over25":     "Plus de 2.5 buts",
+    "under25":    "Moins de 2.5 buts",
+    "over35":     "Plus de 3.5 buts",
     "over45":     "Plus de 4.5 buts",
     "btts":       "Les deux équipes marquent",
+    "btts_no":    "Les deux équipes ne marquent pas",
+    "dc_12":      "Double chance 1-2 (pas de nul)",
     "1x2_home":   "Victoire domicile",
     "1x2_draw":   "Match nul",
     "1x2_away":   "Victoire extérieur",

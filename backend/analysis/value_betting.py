@@ -146,9 +146,21 @@ def analyser_match(
             "cote_key": "odds_over15",
             "label": "Plus de 1.5 buts",
         },
+        "under15": {
+            "cote_key": "odds_under15",
+            "label": "Moins de 1.5 buts",
+        },
         "over25": {
             "cote_key": "odds_over25",
             "label": "Plus de 2.5 buts",
+        },
+        "under25": {
+            "cote_key": "odds_under25",
+            "label": "Moins de 2.5 buts",
+        },
+        "over35": {
+            "cote_key": "odds_over35",
+            "label": "Plus de 3.5 buts",
         },
         "over45": {
             "cote_key": "odds_over45",
@@ -157,6 +169,14 @@ def analyser_match(
         "btts": {
             "cote_key": "odds_btts_yes",
             "label": "Les deux equipes marquent",
+        },
+        "btts_no": {
+            "cote_key": "odds_btts_no",
+            "label": "Les deux équipes ne marquent pas",
+        },
+        "dc_12": {
+            "cote_key": "odds_dc_12",
+            "label": "Double chance 1-2 (pas de nul)",
         },
         "1x2_home": {
             "cote_key": "odds_home",
@@ -229,6 +249,8 @@ def analyser_match(
         ("over15_ht",   "prob_over15_ht",   "odds_over15_ht"),
         ("over05_ht",   "prob_over05_ht",   "odds_over05_ht"),
         ("over25_ht",   "prob_over25_ht",   "odds_over25_ht"),
+        # over35 FT : FootyStats ne fournit pas ces cotes → dérivées du modèle
+        ("over35",      "prob_over35",      "odds_over35"),
     ]:
         if cote_key not in cotes_disponibles:
             p = probabilites_modele.get(prob_key)
@@ -238,9 +260,14 @@ def analyser_match(
 
     prob_marche_modele = {
         "over15":      probabilites_modele.get("prob_over15"),
+        "under15":     probabilites_modele.get("prob_under15"),
         "over25":      probabilites_modele.get("prob_over25"),
+        "under25":     probabilites_modele.get("prob_under25"),
+        "over35":      probabilites_modele.get("prob_over35"),
         "over45":      probabilites_modele.get("prob_over45"),
         "btts":        probabilites_modele.get("prob_btts"),
+        "btts_no":     probabilites_modele.get("prob_btts_no"),
+        "dc_12":       probabilites_modele.get("prob_dc_12"),
         "1x2_home":    probabilites_modele.get("prob_home_win"),
         "1x2_draw":    probabilites_modele.get("prob_draw"),
         "1x2_away":    probabilites_modele.get("prob_away_win"),
@@ -266,6 +293,7 @@ def analyser_match(
         ("odds_over25",   "odds_under25"),
         ("odds_over45",   "odds_under45"),
         ("odds_home",     "odds_away"),
+        ("odds_btts_yes", "odds_btts_no"),
     ]
     for cle_yes, cle_no in paires_binaires:
         c_yes = cotes_disponibles.get(cle_yes)

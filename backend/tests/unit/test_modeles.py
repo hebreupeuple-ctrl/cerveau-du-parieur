@@ -358,13 +358,13 @@ class TestFusionDCML:
         expected = 0.70 * 0.65 + 0.80 * 0.35
         assert result["prob_over15"] == pytest.approx(expected, abs=1e-4)
 
-    def test_over35_absent_du_resultat(self):
-        """over35 supprimé du pipeline — ne doit jamais apparaître dans le résultat."""
+    def test_over35_present_dans_resultat(self):
+        """over35 est un marché actif — doit apparaître dans la fusion si fourni par DC."""
         gen = self._gen()
-        pred_dc = {"prob_over25": 0.50, "prob_btts": 0.48}
+        pred_dc = {"prob_over25": 0.50, "prob_over35": 0.25, "prob_btts": 0.48}
         pred_ml = {"ml_prob_over25": 0.55}
         result = gen._fusionner_probabilites(pred_dc, pred_ml)
-        assert "prob_over35" not in result
+        assert "prob_over35" in result
 
     def test_over15_ht_present_dans_resultat(self):
         """over15_ht activé (78% disponibilité en DB) — doit apparaître dans la fusion."""
