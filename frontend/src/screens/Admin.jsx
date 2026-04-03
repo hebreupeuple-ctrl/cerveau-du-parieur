@@ -257,6 +257,13 @@ export default function Admin() {
             color="#EC4899"
           />
           <ActionButton
+            label="Recalcul features"
+            icon={<RefreshCw size={13} />}
+            loading={actionLoading === 'recalculate-features'}
+            onClick={() => runAction('recalculate-features', 'recalculate-features')}
+            color="#06B6D4"
+          />
+          <ActionButton
             label="Pipeline complet"
             icon={<Play size={13} />}
             loading={actionLoading === 'pipeline-complet'}
