@@ -518,3 +518,133 @@ async def manual_retrain(
             },
         }
     )
+
+
+@router.post("/recalculate-features")
+async def recalculate_features(
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """
+    Recalcule les features pour les matchs dont les nouvelles colonnes
+    sont NULL (après ajout de nouveaux feature groups ou migrations).
+    Traite par lots de 2000 jusqu'à ce qu'il n'y ait plus rien à faire.
+    """
+    lock_service = DistributedJobLockService()
+    lock_token = await asyncio.to_thread(
+        lock_service.acquire,
+        SYSTEM_PIPELINE_RESOURCE,
+    )
+    if not lock_token:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": {
+                    "code": "SYSTEM_PIPELINE_BUSY",
+                    "message": "Un job système est déjà en cours",
+                },
+                "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+            },
+        )
+
+    logger.info_ctx(
+        "Recalcul features forcé demandé",
+        context={"user_id": current_user["id"]},
+    )
+
+    async with manual_system_lock:
+        try:
+            resultat = await asyncio.to_thread(_recalculate_features_sync)
+        finally:
+            await asyncio.to_thread(
+                lock_service.release,
+                SYSTEM_PIPELINE_RESOURCE,
+                lock_token,
+            )
+
+    logger.info_ctx(
+        "Recalcul features forcé terminé",
+        context={
+            "user_id": current_user["id"],
+            "processed": resultat.get("processed", 0),
+            "ok": resultat.get("ok", 0),
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": resultat,
+            "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+        }
+    )
+
+
+def _recalculate_features_sync() -> dict:
+    from backend.database.connection import obtenir_connexion as creer_connexion
+    from backend.features.pipeline import FeaturePipeline
+
+    conn = creer_connexion()
+    try:
+        pipeline = FeaturePipeline(conn)
+
+        # Cible les matchs complets avec features existantes mais nouvelles colonnes NULL
+        rows = conn.execute(
+            """
+            SELECT m.id, m.match_timestamp, m.home_team_id,
+                   m.away_team_id, m.league_id, m.game_week
+            FROM matches m
+            JOIN match_features mf ON mf.match_id = m.id
+            JOIN leagues l ON l.id = m.league_id
+            WHERE m.status = 'complete'
+            AND l.is_active = 1
+            AND (
+                mf.bk_has_odds IS NULL
+                OR mf.home_yellow_cards_avg_5m IS NULL
+            )
+            ORDER BY m.match_timestamp DESC
+            LIMIT 2000
+            """,
+        ).fetchall()
+
+        ok = 0
+        fail = 0
+
+        for index, match in enumerate(rows, start=1):
+            success = pipeline.calculer_et_sauvegarder(
+                match_id=match["id"],
+                match_timestamp=match["match_timestamp"],
+                home_team_id=match["home_team_id"],
+                away_team_id=match["away_team_id"],
+                league_id=match["league_id"],
+                game_week=match["game_week"],
+                commit=False,
+            )
+            if success:
+                ok += 1
+            else:
+                fail += 1
+
+            if index % 200 == 0:
+                conn.commit()
+
+        conn.commit()
+
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) FROM matches m
+            JOIN match_features mf ON mf.match_id = m.id
+            JOIN leagues l ON l.id = m.league_id
+            WHERE m.status = 'complete' AND l.is_active = 1
+            AND (mf.bk_has_odds IS NULL OR mf.home_yellow_cards_avg_5m IS NULL)
+            """
+        ).fetchone()[0]
+
+        return {
+            "processed": len(rows),
+            "ok": ok,
+            "fail": fail,
+            "remaining": remaining,
+        }
+    finally:
+        conn.close()
