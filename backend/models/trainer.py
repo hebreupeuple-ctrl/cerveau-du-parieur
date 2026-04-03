@@ -429,21 +429,33 @@ class ModelTrainer:
         """
         Entraine l'ensemble complet pour tous les marchés.
         """
+        import time as _time
+        t0_global = _time.time()
+
+        print("⏳ Chargement des données d'entraînement...", flush=True)
         donnees = self.charger_donnees_entrainement()
         if not donnees:
             return {}
 
+        n_matchs = donnees["n_matchs"]
+        n_features = donnees["X"].shape[1]
+        print(f"✅ {n_matchs:,} matchs chargés — {n_features} features", flush=True)
+
         X = donnees["X"]
         resultats = {}
-        N_MIN = 500  # Exemples minimum pour entraîner un marché
+        N_MIN = 500
 
-        for marche in MARCHES:
+        marches_a_entrainer = [m for m in MARCHES]
+        total = len(marches_a_entrainer)
+
+        for idx, marche in enumerate(marches_a_entrainer, 1):
             y_all = donnees["labels"][marche]
-
-            # Filtrer les exemples valides (nan = label manquant, ex. HT sans données)
             valid_mask = ~np.isnan(y_all)
             n_valid = int(valid_mask.sum())
             n_pos = int(y_all[valid_mask].sum()) if n_valid > 0 else 0
+
+            barre = "█" * idx + "░" * (total - idx)
+            print(f"[{barre}] {idx}/{total} {marche:<20} ({n_valid:,} exemples)", flush=True)
 
             if n_valid < N_MIN:
                 logger.warning_ctx(
@@ -456,8 +468,17 @@ class ModelTrainer:
             X_marche = X[valid_mask]
             y_marche = y_all[valid_mask].astype(np.int32)
 
+            t0 = _time.time()
             metriques = self.entrainer_marche(marche, X_marche, y_marche)
+            elapsed = round(_time.time() - t0, 1)
+            auc = metriques.get("roc_auc", "?")
+            brier = metriques.get("brier_score", "?")
+            print(f"  → AUC={auc}  Brier={brier}  ({elapsed}s)", flush=True)
             resultats[marche] = metriques
+
+        elapsed_total = round(_time.time() - t0_global)
+        print(f"\n✅ Entraînement terminé en {elapsed_total}s", flush=True)
+        print("💾 Sauvegarde du modèle...", flush=True)
 
         chemin = self._sauvegarder_modeles()
         self._enregistrer_version_modele(
