@@ -14,6 +14,7 @@ from backend.features.groups.contexte import calculer_features_contexte
 from backend.features.groups.ligue import calculer_features_ligue
 from backend.features.groups.classement import calculer_features_classement
 from backend.features.groups.shots_corners import calculer_features_shots_corners
+from backend.features.groups.cards import calculer_features_cards
 from backend.features.groups.odds_implied import calculer_features_odds_implied
 
 logger = get_logger(__name__)
@@ -118,6 +119,22 @@ class FeaturePipeline:
             for k, v in sc_home.items():
                 features[f"home_{k}"] = v
             for k, v in sc_away.items():
+                features[f"away_{k}"] = v
+
+            # Groupe 11 — Cartons (discipline)
+            cards_home = calculer_features_cards(
+                conn=self.conn,
+                team_id=home_team_id,
+                max_time=max_time,
+            )
+            cards_away = calculer_features_cards(
+                conn=self.conn,
+                team_id=away_team_id,
+                max_time=max_time,
+            )
+            for k, v in cards_home.items():
+                features[f"home_{k}"] = v
+            for k, v in cards_away.items():
                 features[f"away_{k}"] = v
 
             # Groupe 10 — Probabilités implicites bookmaker

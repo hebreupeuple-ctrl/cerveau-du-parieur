@@ -81,6 +81,10 @@ FEATURES_COLONNES = [
     "bk_prob_btts",
     "bk_margin",
     "bk_has_odds",
+    # Discipline / cartons — disponibles pour 100% des matchs FootyStats.
+    # Corrèle avec les marchés over/btts et la tendance physique des équipes.
+    "home_yellow_cards_avg_5m", "home_red_cards_avg_5m", "home_discipline_score_5m",
+    "away_yellow_cards_avg_5m", "away_red_cards_avg_5m", "away_discipline_score_5m",
 ]
 
 # Feature virtuelle calculée (pas une colonne DB) : ajoutée après la boucle FEATURES_COLONNES

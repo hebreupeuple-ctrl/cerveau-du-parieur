@@ -96,7 +96,12 @@ async def register(req: RegisterRequest, conn: sqlite3.Connection = Depends(get_
     conn.commit()
     user_id = cursor.lastrowid
 
-    for market in MARKETS[:7]:
+    _MARCHES_DEFAUT = [
+        "over15", "over25", "over45", "btts",
+        "1x2_home", "1x2_draw", "1x2_away",
+        "dc_1x", "dc_x2",
+    ]
+    for market in _MARCHES_DEFAUT:
         conn.execute(
             "INSERT OR IGNORE INTO user_markets (user_id, market) VALUES (?, ?)",
             (user_id, market),
