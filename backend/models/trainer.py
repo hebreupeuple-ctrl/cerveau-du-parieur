@@ -73,6 +73,14 @@ FEATURES_COLONNES = [
     "away_goals_ht_avg_5m", "away_over15_ht_rate_5m",
     "away_ht_win_rate_5m", "away_ht_draw_rate_5m",
     "away_fatigue_score",
+    # Probabilités implicites bookmaker — signal le plus précis du marché.
+    # Permettent au ML d'apprendre QUAND il diverge du consensus bookmaker.
+    # bk_has_odds = 0 quand aucune cote disponible (imputation par médiane).
+    "bk_prob_home", "bk_prob_draw", "bk_prob_away",
+    "bk_prob_over15", "bk_prob_over25",
+    "bk_prob_btts",
+    "bk_margin",
+    "bk_has_odds",
 ]
 
 # Feature virtuelle calculée (pas une colonne DB) : ajoutée après la boucle FEATURES_COLONNES

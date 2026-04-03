@@ -14,6 +14,7 @@ from backend.features.groups.contexte import calculer_features_contexte
 from backend.features.groups.ligue import calculer_features_ligue
 from backend.features.groups.classement import calculer_features_classement
 from backend.features.groups.shots_corners import calculer_features_shots_corners
+from backend.features.groups.odds_implied import calculer_features_odds_implied
 
 logger = get_logger(__name__)
 
@@ -118,6 +119,15 @@ class FeaturePipeline:
                 features[f"home_{k}"] = v
             for k, v in sc_away.items():
                 features[f"away_{k}"] = v
+
+            # Groupe 10 — Probabilités implicites bookmaker
+            # Signal le plus précis disponible : les bookmakers résument
+            # des milliers d'informations en une seule cote.
+            odds_implied = calculer_features_odds_implied(
+                conn=self.conn,
+                match_id=match_id,
+            )
+            features.update(odds_implied)
 
             return features
 
